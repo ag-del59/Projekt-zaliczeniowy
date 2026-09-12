@@ -739,6 +739,116 @@ def clear_reference_data():
 
     print("Dane referencyjne zostały wyczyszczone.")
 
+def get_comparison_by_rs(rs_id, population):
+        conn = sqlite3.connect(DB_NAME)
+
+        query = """
+            SELECT
+                v.gene,
+                v.rs_id,
+                v.hgvs_c,
+
+                r.population,
+                r.allele_count AS ref_ac,
+                r.allele_number AS ref_an,
+                r.allele_frequency AS ref_af,
+
+                COUNT(
+                    DISTINCT t_all.patient_id
+                ) AS tested_n,
+
+                COUNT(
+                    DISTINCT CASE
+                        WHEN f.zygosity = 'heterozygota'
+                        THEN t_positive.patient_id
+                    END
+                ) AS heterozygous_n,
+
+                COUNT(
+                    DISTINCT CASE
+                        WHEN f.zygosity = 'homozygota'
+                        THEN t_positive.patient_id
+                    END
+                ) AS homozygous_n
+
+            FROM variants v
+
+            JOIN tests t_all
+                ON t_all.gene = v.gene
+
+            LEFT JOIN findings f
+                ON f.variant_id = v.variant_id
+
+            LEFT JOIN tests t_positive
+                ON f.test_id = t_positive.test_id
+
+            JOIN reference_frequencies r
+                ON r.variant_id = v.variant_id
+
+            WHERE v.rs_id = ?
+              AND r.population = ?
+
+            GROUP BY
+                v.variant_id,
+                v.gene,
+                v.rs_id,
+                v.hgvs_c,
+                r.population,
+                r.allele_count,
+                r.allele_number,
+                r.allele_frequency
+        """
+
+        df = pd.read_sql_query(
+            query,
+            conn,
+            params=(rs_id, population)
+        )
+
+        conn.close()
+
+        if df.empty:
+            return None
+
+        # dane laboratoryjne
+        df["lab_ac"] = (
+                df["heterozygous_n"]
+                + 2 * df["homozygous_n"]
+        )
+
+        df["lab_an"] = (
+                2 * df["tested_n"]
+        )
+
+        df["lab_af"] = (
+                df["lab_ac"]
+                / df["lab_an"]
+        )
+
+        df["lab_af_percent"] = (
+                df["lab_af"] * 100
+        )
+
+        # dane referencyjne
+        df["ref_af_percent"] = (
+                df["ref_af"] * 100
+        )
+
+        # ile razy częściej/rzadziej wariant występuje w labie
+        df["frequency_ratio"] = df.apply(
+            lambda row: (
+                row["lab_af"] / row["ref_af"]
+                if row["ref_af"] > 0
+                else None
+            ),
+            axis=1
+        )
+
+        return df
+
+
+
+
 if __name__ == "__main__":
 
     create_database()
@@ -756,3 +866,11 @@ if __name__ == "__main__":
     )
 
     check_import()
+
+    comparison = get_comparison_by_rs(
+        "rs80357906",
+        "European (non-Finnish)"
+    )
+
+    print("\nPorównanie LAB vs gnomAD:")
+    print(comparison)

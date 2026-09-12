@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from database import get_variant_labels, get_variant_by_rs
+from database import get_variant_labels, get_comparison_by_rs
 
 root = tk.Tk()
 
@@ -38,7 +38,12 @@ def show_statistics():
 
     rs_id = parts[1]
 
-    df = get_variant_by_rs(rs_id)
+    population = population_combobox.get()
+
+    df = get_comparison_by_rs(
+        rs_id,
+        population
+    )
 
     if df is None:
         return
@@ -176,5 +181,19 @@ af_value.grid(
     column=1,
     sticky="w"
 )
+
+population_combobox = ttk.Combobox(
+    root,
+    values=[
+        "Global",
+        "European (non-Finnish)",
+        "Finnish"
+    ],
+    state="readonly",
+    width=30
+)
+
+population_combobox.set("European (non-Finnish)")
+population_combobox.pack(pady=5)
 
 root.mainloop()
