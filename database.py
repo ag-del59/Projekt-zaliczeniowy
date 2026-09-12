@@ -89,6 +89,37 @@ def create_database():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS reference_frequencies (
+            reference_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            variant_id INTEGER NOT NULL,
+            population TEXT NOT NULL,
+            allele_count INTEGER,
+            allele_number INTEGER,
+            allele_frequency REAL,
+            homozygote_count INTEGER,
+            source TEXT NOT NULL,
+            release_version TEXT,
+            dataset TEXT,
+            genome_build TEXT,
+            retrieval_date TEXT,
+            source_url TEXT,
+            notes TEXT,
+
+            FOREIGN KEY (variant_id)
+                REFERENCES variants(variant_id)
+                ON DELETE CASCADE,
+
+            UNIQUE(
+                variant_id,
+                population,
+                source,
+                release_version,
+                dataset
+            )
+        )
+    """)
+
     # Zapisujemy zmiany
     conn.commit()
 
@@ -266,6 +297,8 @@ def import_tests_from_excel(file_path):
     conn.close()
 
     print("Dane z arkusza Badania zostały zaimportowane.")
+
+
     #-------------------------------------------------------
 def check_import():
     conn = sqlite3.connect(DB_NAME)
@@ -283,12 +316,21 @@ def check_import():
     cursor.execute("SELECT COUNT(*) FROM findings")
     findings_count = cursor.fetchone()[0]
 
+    cursor.execute(
+        "SELECT COUNT(*) FROM reference_frequencies"
+    )
+    reference_count = cursor.fetchone()[0]
+
     conn.close()
 
     print("Liczba pacjentów:", patients_count)
     print("Liczba badań:", tests_count)
     print("Liczba unikalnych wariantów:", variants_count)
     print("Liczba wykryć wariantów:", findings_count)
+    print(
+        "Liczba danych referencyjnych:",
+        reference_count
+    )
 #--------------------------------------------
 
 def get_variant_statistics():
@@ -369,8 +411,6 @@ def get_variant_statistics():
     df["lab_af_percent"] = (
             df["lab_af"] * 100
     )
-
-    return df
 
     return df
 
@@ -493,23 +533,6 @@ def get_variant_list():
 
     return df
 
-def get_variant_labels():
-
-    df = get_variant_list()
-
-    labels = []
-
-    for _, row in df.iterrows():
-
-        label = (
-            f"{row['gene']} — "
-            f"{row['rs_id']} — "
-            f"{row['hgvs_c']}"
-        )
-
-        labels.append(label)
-
-    return labels
 
 def get_variant_labels():
 
@@ -528,8 +551,196 @@ def get_variant_labels():
         labels.append(label)
 
     return labels
+
+def import_reference_from_excel(file_path):
+
+    df = pd.read_excel(
+        file_path,
+        sheet_name="Dane_gnomAD"
+    )
+
+    conn = sqlite3.connect(DB_NAME)
+    conn.execute("PRAGMA foreign_keys = ON")
+
+    cursor = conn.cursor()
+
+    imported = 0
+    skipped = 0
+
+    for _, row in df.iterrows():
+
+        rs_id = row["rs_id"]
+        population = row["populacja"]
+
+        # Pomijamy wiersze, w których nie uzupełniono jeszcze danych gnomAD
+        if pd.isna(row["AC"]) or pd.isna(row["AN"]):
+            skipped += 1
+            continue
+
+        # --------------------------
+        # 1. ZNAJDŹ variant_id
+        # --------------------------
+
+        cursor.execute("""
+            SELECT variant_id
+            FROM variants
+            WHERE rs_id = ?
+        """, (rs_id,))
+
+        result = cursor.fetchone()
+
+        if result is None:
+            print(
+                f"Nie znaleziono wariantu {rs_id} "
+                f"w tabeli variants."
+            )
+            skipped += 1
+            continue
+
+        variant_id = result[0]
+
+        # --------------------------
+        # 2. PRZYGOTUJ DANE
+        # --------------------------
+
+        allele_count = int(row["AC"])
+        allele_number = int(row["AN"])
+
+        allele_frequency = (
+            float(row["AF"])
+            if not pd.isna(row["AF"])
+            else allele_count / allele_number
+        )
+
+        homozygote_count = (
+            int(row["liczba_homozygot"])
+            if not pd.isna(row["liczba_homozygot"])
+            else None
+        )
+
+        release_version = (
+            str(row["release_gnomAD"])
+            if not pd.isna(row["release_gnomAD"])
+            else None
+        )
+
+        dataset = (
+            str(row["dataset"])
+            if not pd.isna(row["dataset"])
+            else None
+        )
+
+        genome_build = (
+            str(row["genome_build"])
+            if not pd.isna(row["genome_build"])
+            else None
+        )
+
+        retrieval_date = (
+            str(row["data_pobrania"])
+            if not pd.isna(row["data_pobrania"])
+            else None
+        )
+
+        source_url = (
+            str(row["source_url"])
+            if not pd.isna(row["source_url"])
+            else None
+        )
+
+        notes = (
+            str(row["uwagi"])
+            if not pd.isna(row["uwagi"])
+            else None
+        )
+
+        # --------------------------
+        # 3. DODAJ DO BAZY
+        # --------------------------
+        cursor.execute("""
+            SELECT reference_id
+            FROM reference_frequencies
+            WHERE variant_id = ?
+              AND population = ?
+              AND source = ?
+              AND COALESCE(release_version, '') = COALESCE(?, '')
+              AND COALESCE(dataset, '') = COALESCE(?, '')
+        """, (
+            variant_id,
+            population,
+            "gnomAD",
+            release_version,
+            dataset
+        ))
+
+        existing = cursor.fetchone()
+
+        if existing is not None:
+            skipped += 1
+            continue
+
+        cursor.execute("""
+            INSERT OR IGNORE INTO reference_frequencies (
+                variant_id,
+                population,
+                allele_count,
+                allele_number,
+                allele_frequency,
+                homozygote_count,
+                source,
+                release_version,
+                dataset,
+                genome_build,
+                retrieval_date,
+                source_url,
+                notes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            variant_id,
+            population,
+            allele_count,
+            allele_number,
+            allele_frequency,
+            homozygote_count,
+            "gnomAD",
+            release_version,
+            dataset,
+            genome_build,
+            retrieval_date,
+            source_url,
+            notes
+        ))
+
+        if cursor.rowcount == 1:
+            imported += 1
+        else:
+            skipped += 1
+
+    conn.commit()
+    conn.close()
+
+    print(
+        f"Dane referencyjne: dodano {imported}, "
+        f"pominięto {skipped}."
+    )
+
+def clear_reference_data():
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        DELETE FROM reference_frequencies
+    """)
+
+    conn.commit()
+    conn.close()
+
+    print("Dane referencyjne zostały wyczyszczone.")
 
 if __name__ == "__main__":
+
     create_database()
 
     import_tests_from_excel(
@@ -539,3 +750,9 @@ if __name__ == "__main__":
     import_variants_from_excel(
         "BRCA1_BRCA2_dane_syntetyczne_1000_pacjentow.xlsx"
     )
+
+    import_reference_from_excel(
+        "gnomAD_dane_referencyjne_BRCA1_BRCA2.xlsx"
+    )
+
+    check_import()
