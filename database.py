@@ -374,6 +374,160 @@ def get_variant_statistics():
 
     return df
 
+def get_variant_by_rs(rs_id):
+
+    conn = sqlite3.connect(DB_NAME)
+
+    query = """
+        SELECT
+            v.gene,
+            v.rs_id,
+            v.hgvs_c,
+
+            COUNT(
+                DISTINCT t_all.patient_id
+            ) AS tested_n,
+
+            COUNT(
+                DISTINCT CASE
+                    WHEN f.zygosity = 'heterozygota'
+                    THEN t_positive.patient_id
+                END
+            ) AS heterozygous_n,
+
+            COUNT(
+                DISTINCT CASE
+                    WHEN f.zygosity = 'homozygota'
+                    THEN t_positive.patient_id
+                END
+            ) AS homozygous_n
+
+        FROM variants v
+
+        JOIN tests t_all
+            ON t_all.gene = v.gene
+
+        LEFT JOIN findings f
+            ON f.variant_id = v.variant_id
+
+        LEFT JOIN tests t_positive
+            ON f.test_id = t_positive.test_id
+
+        WHERE v.rs_id = ?
+
+        GROUP BY
+            v.variant_id,
+            v.gene,
+            v.rs_id,
+            v.hgvs_c
+    """
+
+    df = pd.read_sql_query(
+        query,
+        conn,
+        params=(rs_id,)
+    )
+
+    conn.close()
+
+    if df.empty:
+        return None
+
+    df["allele_count"] = (
+        df["heterozygous_n"]
+        + 2 * df["homozygous_n"]
+    )
+
+    df["allele_number"] = (
+        2 * df["tested_n"]
+    )
+
+    df["lab_af"] = (
+        df["allele_count"]
+        / df["allele_number"]
+    )
+
+    df["lab_af_percent"] = (
+        df["lab_af"] * 100
+    )
+
+    return df
+
+def get_all_rs_ids():
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT rs_id
+        FROM variants
+        WHERE rs_id IS NOT NULL
+        ORDER BY rs_id
+    """)
+
+    results = cursor.fetchall()
+
+    conn.close()
+
+    rs_ids = [row[0] for row in results]
+
+    return rs_ids
+
+def get_variant_list():
+
+    conn = sqlite3.connect(DB_NAME)
+
+    query = """
+        SELECT
+            variant_id,
+            gene,
+            rs_id,
+            hgvs_c
+        FROM variants
+        ORDER BY gene, hgvs_c
+    """
+
+    df = pd.read_sql_query(query, conn)
+
+    conn.close()
+
+    return df
+
+def get_variant_labels():
+
+    df = get_variant_list()
+
+    labels = []
+
+    for _, row in df.iterrows():
+
+        label = (
+            f"{row['gene']} — "
+            f"{row['rs_id']} — "
+            f"{row['hgvs_c']}"
+        )
+
+        labels.append(label)
+
+    return labels
+
+def get_variant_labels():
+
+    df = get_variant_list()
+
+    labels = []
+
+    for _, row in df.iterrows():
+
+        label = (
+            f"{row['gene']} — "
+            f"{row['rs_id']} — "
+            f"{row['hgvs_c']}"
+        )
+
+        labels.append(label)
+
+    return labels
 
 if __name__ == "__main__":
     create_database()
@@ -385,10 +539,3 @@ if __name__ == "__main__":
     import_variants_from_excel(
         "BRCA1_BRCA2_dane_syntetyczne_1000_pacjentow.xlsx"
     )
-
-    check_import()
-
-    statistics = get_variant_statistics()
-
-    print("\nStatystyki wariantów:")
-    print(statistics)
