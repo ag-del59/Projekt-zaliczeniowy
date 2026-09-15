@@ -1,12 +1,15 @@
 import tkinter as tk
 from tkinter import ttk
-
 from database import get_variant_labels, get_comparison_by_rs
+
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 root = tk.Tk()
 
 root.title("Analiza wariantów BRCA1 / BRCA2")
-root.geometry("850x650")
+root.geometry("1200x700")
+root.minsize(1100, 650)
 
 title_label = ttk.Label(
     root,
@@ -16,18 +19,58 @@ title_label = ttk.Label(
 
 title_label.pack(pady=20)
 
+main_frame = ttk.Frame(root)
+main_frame.pack(
+    fill="both",
+    expand=True,
+    padx=20,
+    pady=10
+)
+
+# Lewa strona
+left_frame = ttk.LabelFrame(
+    main_frame,
+    text="Wybór danych"
+)
+
+left_frame.grid(
+    row=0,
+    column=0,
+    sticky="ns",
+    padx=(0, 15)
+)
+
+# Prawa strona
+right_frame = ttk.Frame(
+    main_frame
+)
+
+right_frame.grid(
+    row=0,
+    column=1,
+    sticky="nsew"
+)
+
+main_frame.columnconfigure(
+    1,
+    weight=1
+)
+
 variant_labels = get_variant_labels()
 variant_combobox = ttk.Combobox(
-    root,
+    left_frame,
     values=variant_labels,
     width=65,
     state="readonly"
 )
 
-variant_combobox.pack(pady=10)
+variant_combobox.pack(
+    padx=15,
+    pady=10
+)
 
 population_combobox = ttk.Combobox(
-    root,
+    left_frame,
     values=[
         "Global",
         "European (non-Finnish)",
@@ -37,14 +80,43 @@ population_combobox = ttk.Combobox(
     width=30
 )
 
-population_combobox.set("European (non-Finnish)")
-population_combobox.pack(pady=5)
+population_combobox.set(
+    "European (non-Finnish)"
+)
 
-controls_frame = ttk.Frame(root)
-controls_frame.pack(pady=10)
+population_combobox.pack(
+    padx=15,
+    pady=10
+)
 
-results_frame = ttk.Frame(root)
-results_frame.pack(pady=15)
+controls_frame = ttk.Frame(
+    left_frame
+)
+
+controls_frame.pack(
+    padx=15,
+    pady=15
+)
+chart_frame = ttk.LabelFrame(
+    left_frame,
+    text="Porównanie AF"
+)
+
+chart_frame.pack(
+    fill="both",
+    expand=True,
+    padx=15,
+    pady=(5, 15)
+)
+
+results_frame = ttk.Frame(
+    right_frame
+)
+
+results_frame.pack(
+    fill="both",
+    expand=True
+)
 
 variant_frame = ttk.LabelFrame(
     results_frame,
@@ -283,6 +355,56 @@ significance_value = ttk.Label(
 )
 significance_value.grid(row=3, column=1, padx=10, pady=5)
 
+
+def show_af_chart(lab_af, ref_af, population):
+    # Usuwamy poprzedni wykres
+    for widget in chart_frame.winfo_children():
+        widget.destroy()
+
+    fig, ax = plt.subplots(
+        figsize=(4.5, 3.5)
+    )
+
+    names = [
+        "Laboratorium",
+        f"gnomAD\n{population}"
+    ]
+
+    values = [
+        lab_af,
+        ref_af
+    ]
+
+    ax.bar(
+        names,
+        values
+    )
+
+    # Pobranie wybranej skali
+    scale = scale_combobox.get()
+
+    if scale == "Logarytmiczna":
+        ax.set_yscale("log")
+
+    ax.set_ylabel("Częstość allelu [%]")
+    ax.set_title("AF: laboratorium vs gnomAD")
+
+    fig.tight_layout()
+
+    canvas = FigureCanvasTkAgg(
+        fig,
+        master=chart_frame
+    )
+
+    canvas.draw()
+
+    canvas.get_tk_widget().pack(
+        fill="both",
+        expand=True
+    )
+
+    plt.close(fig)
+
 def show_statistics():
 
     selected = variant_combobox.get()
@@ -400,6 +522,9 @@ def show_statistics():
 
     status_value.config(text="")
 
+
+
+
     # -------------------------
     # TEST STATYSTYCZNY
     # -------------------------
@@ -425,6 +550,11 @@ def show_statistics():
         significance_value.config(
             text="Nie (p ≥ 0,05)"
         )
+    show_af_chart(
+        row["lab_af_percent"],
+        row["ref_af_percent"],
+        row["population"]
+    )
 
 show_button = ttk.Button(
     controls_frame,
@@ -434,5 +564,31 @@ show_button = ttk.Button(
 
 show_button.pack()
 
+ttk.Label(
+    controls_frame,
+    text="Skala wykresu:"
+).pack(pady=(10, 2))
+
+scale_combobox = ttk.Combobox(
+    controls_frame,
+    values=[
+        "Liniowa",
+        "Logarytmiczna"
+    ],
+    state="readonly",
+    width=18
+)
+
+scale_combobox.set("Liniowa")
+scale_combobox.pack()
+
+def change_scale(event=None):
+    show_statistics()
+
+
+scale_combobox.bind(
+    "<<ComboboxSelected>>",
+    change_scale
+)
 
 root.mainloop()
