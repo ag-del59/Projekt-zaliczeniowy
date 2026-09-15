@@ -1,5 +1,6 @@
 import sqlite3
 import pandas as pd
+from scipy.stats import fisher_exact
 
 DB_NAME = "brca_database.db"
 
@@ -843,6 +844,34 @@ def get_comparison_by_rs(rs_id, population):
             ),
             axis=1
         )
+        # ==============================
+        # TEST DOKŁADNY FISHERA
+        # ==============================
+
+        lab_ac = int(df.loc[0, "lab_ac"])
+        lab_an = int(df.loc[0, "lab_an"])
+
+        ref_ac = int(df.loc[0, "ref_ac"])
+        ref_an = int(df.loc[0, "ref_an"])
+
+        # Tabela 2x2:
+        #                wariant    brak wariantu
+        # LAB
+        # gnomAD
+
+        table = [
+            [lab_ac, lab_an - lab_ac],
+            [ref_ac, ref_an - ref_ac]
+        ]
+
+        odds_ratio, p_value = fisher_exact(
+            table,
+            alternative="two-sided"
+        )
+
+        df["odds_ratio"] = odds_ratio
+        df["p_value"] = p_value
+        df["significant"] = p_value < 0.05
 
         return df
 
@@ -873,4 +902,16 @@ if __name__ == "__main__":
     )
 
     print("\nPorównanie LAB vs gnomAD:")
-    print(comparison)
+    print(
+        comparison[
+            [
+                "rs_id",
+                "lab_af_percent",
+                "ref_af_percent",
+                "frequency_ratio",
+                "odds_ratio",
+                "p_value",
+                "significant"
+            ]
+        ]
+    )

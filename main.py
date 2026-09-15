@@ -247,7 +247,41 @@ status_value.grid(
     columnspan=2,
     pady=5
 )
+ttk.Label(
+    comparison_frame,
+    text="Odds ratio:"
+).grid(row=1, column=0, padx=10, pady=5, sticky="w")
 
+odds_ratio_value = ttk.Label(
+    comparison_frame,
+    text="-"
+)
+odds_ratio_value.grid(row=1, column=1, padx=10, pady=5)
+
+
+ttk.Label(
+    comparison_frame,
+    text="p-value (test Fishera):"
+).grid(row=2, column=0, padx=10, pady=5, sticky="w")
+
+p_value_value = ttk.Label(
+    comparison_frame,
+    text="-"
+)
+p_value_value.grid(row=2, column=1, padx=10, pady=5)
+
+
+ttk.Label(
+    comparison_frame,
+    text="Istotność statystyczna:"
+).grid(row=3, column=0, padx=10, pady=5, sticky="w")
+
+significance_value = ttk.Label(
+    comparison_frame,
+    text="-",
+    font=("Arial", 10, "bold")
+)
+significance_value.grid(row=3, column=1, padx=10, pady=5)
 
 def show_statistics():
 
@@ -354,12 +388,43 @@ def show_statistics():
             text=f"{ratio:.2f} × częściej w laboratorium"
         )
 
-    else:
+    elif ratio > 0:
         ratio_value.config(
             text=f"{1 / ratio:.2f} × rzadziej w laboratorium"
         )
 
+    else:
+        ratio_value.config(
+            text="Wariant niewykryty w laboratorium"
+        )
+
     status_value.config(text="")
+
+    # -------------------------
+    # TEST STATYSTYCZNY
+    # -------------------------
+
+    odds_ratio = row["odds_ratio"]
+    p_value = row["p_value"]
+    significant = row["significant"]
+
+    odds_ratio_value.config(
+        text=f"{odds_ratio:.2f}"
+    )
+
+    # zapis naukowy, np. 1.14e-84
+    p_value_value.config(
+        text=f"{p_value:.3e}"
+    )
+
+    if significant:
+        significance_value.config(
+            text="Tak (p < 0,05)"
+        )
+    else:
+        significance_value.config(
+            text="Nie (p ≥ 0,05)"
+        )
 
 show_button = ttk.Button(
     controls_frame,
