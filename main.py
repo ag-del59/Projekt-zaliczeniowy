@@ -1,6 +1,10 @@
 import tkinter as tk
 from tkinter import ttk
-from database import get_variant_labels, get_comparison_by_rs
+from database import (
+    get_variant_labels,
+    get_comparison_by_rs,
+    get_all_comparisons
+)
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -19,17 +23,219 @@ title_label = ttk.Label(
 
 title_label.pack(pady=20)
 
-main_frame = ttk.Frame(root)
-main_frame.pack(
+# ------------------------------------------------
+# PRZEŁĄCZANIE WIDOKÓW
+# ------------------------------------------------
+
+view_buttons_frame = ttk.Frame(root)
+
+view_buttons_frame.pack(
+    pady=(0, 10)
+)
+
+single_view = ttk.Frame(root)
+
+single_view.pack(
     fill="both",
     expand=True,
     padx=20,
     pady=10
 )
 
+all_view = ttk.Frame(root)
+
+def show_single_view():
+
+    all_view.pack_forget()
+
+    single_view.pack(
+        fill="both",
+        expand=True,
+        padx=20,
+        pady=10
+    )
+
+
+def show_all_view():
+
+    single_view.pack_forget()
+
+    all_view.pack(
+        fill="both",
+        expand=True,
+        padx=20,
+        pady=10
+    )
+
+single_view_button = ttk.Button(
+    view_buttons_frame,
+    text="Analiza pojedynczego wariantu",
+    command=show_single_view
+)
+
+single_view_button.pack(
+    side="left",
+    padx=5
+)
+
+
+all_view_button = ttk.Button(
+    view_buttons_frame,
+    text="Porównanie wszystkich wariantów",
+    command=show_all_view
+)
+
+all_view_button.pack(
+    side="left",
+    padx=5
+)
+all_view_title = ttk.Label(
+    all_view,
+    text="Porównanie wszystkich wariantów",
+    font=("Arial", 16, "bold")
+)
+
+all_view_title.pack(
+    pady=20
+)
+# ------------------------------------------------
+# FILTRY - WSZYSTKIE WARIANTY
+# ------------------------------------------------
+
+all_controls_frame = ttk.Frame(all_view)
+
+all_controls_frame.pack(
+    pady=10
+)
+
+ttk.Label(
+    all_controls_frame,
+    text="Gen:"
+).grid(
+    row=0,
+    column=0,
+    padx=5,
+    pady=5,
+    sticky="e"
+)
+
+
+gene_all_combobox = ttk.Combobox(
+    all_controls_frame,
+    values=[
+        "Wszystkie",
+        "BRCA1",
+        "BRCA2"
+    ],
+    state="readonly",
+    width=25
+)
+
+gene_all_combobox.set("Wszystkie")
+
+gene_all_combobox.grid(
+    row=0,
+    column=1,
+    padx=5,
+    pady=5
+)
+
+ttk.Label(
+    all_controls_frame,
+    text="Populacja:"
+).grid(
+    row=1,
+    column=0,
+    padx=5,
+    pady=5,
+    sticky="e"
+)
+
+
+population_all_combobox = ttk.Combobox(
+    all_controls_frame,
+    values=[
+        "Global",
+        "European (non-Finnish)",
+        "Finnish"
+    ],
+    state="readonly",
+    width=25
+)
+
+population_all_combobox.set(
+    "European (non-Finnish)"
+)
+
+population_all_combobox.grid(
+    row=1,
+    column=1,
+    padx=5,
+    pady=5
+)
+
+ttk.Label(
+    all_controls_frame,
+    text="Skala:"
+).grid(
+    row=2,
+    column=0,
+    padx=5,
+    pady=5,
+    sticky="e"
+)
+
+
+scale_all_combobox = ttk.Combobox(
+    all_controls_frame,
+    values=[
+        "Liniowa",
+        "Logarytmiczna"
+    ],
+    state="readonly",
+    width=25
+)
+
+scale_all_combobox.set(
+    "Logarytmiczna"
+)
+
+scale_all_combobox.grid(
+    row=2,
+    column=1,
+    padx=5,
+    pady=5
+)
+
+
+# ------------------------------------------------
+# WYKRES WSZYSTKICH WARIANTÓW
+# ------------------------------------------------
+
+all_chart_frame = ttk.LabelFrame(
+    all_view,
+    text="Porównanie AF"
+)
+
+all_chart_frame.pack(
+    fill="both",
+    expand=True,
+    padx=20,
+    pady=10
+)
+
+all_chart_info = ttk.Label(
+    all_chart_frame,
+    text="Wybierz parametry i kliknij „Pokaż porównanie”."
+)
+
+all_chart_info.pack(
+    pady=50
+)
+
 # Lewa strona
 left_frame = ttk.LabelFrame(
-    main_frame,
+    single_view,
     text="Wybór danych"
 )
 
@@ -42,7 +248,7 @@ left_frame.grid(
 
 # Prawa strona
 right_frame = ttk.Frame(
-    main_frame
+    single_view
 )
 
 right_frame.grid(
@@ -51,7 +257,7 @@ right_frame.grid(
     sticky="nsew"
 )
 
-main_frame.columnconfigure(
+single_view.columnconfigure(
     1,
     weight=1
 )
@@ -356,7 +562,7 @@ significance_value = ttk.Label(
 significance_value.grid(row=3, column=1, padx=10, pady=5)
 
 
-def show_af_chart(lab_af, ref_af, population):
+def show_af_chart(lab_af, ref_af, population, rs_id):
     # Usuwamy poprzedni wykres
     for widget in chart_frame.winfo_children():
         widget.destroy()
@@ -375,10 +581,18 @@ def show_af_chart(lab_af, ref_af, population):
         ref_af
     ]
 
-    ax.bar(
+    bars = ax.bar(
         names,
         values
     )
+    for bar, value in zip(bars, values):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            value,
+            f"{value:.4f}%",
+            ha="center",
+            va="bottom"
+        )
 
     # Pobranie wybranej skali
     scale = scale_combobox.get()
@@ -387,7 +601,9 @@ def show_af_chart(lab_af, ref_af, population):
         ax.set_yscale("log")
 
     ax.set_ylabel("Częstość allelu [%]")
-    ax.set_title("AF: laboratorium vs gnomAD")
+    ax.set_title(
+        f"{rs_id}\nAF: laboratorium vs gnomAD"
+    )
 
     fig.tight_layout()
 
@@ -404,6 +620,119 @@ def show_af_chart(lab_af, ref_af, population):
     )
 
     plt.close(fig)
+
+def show_all_variants_chart():
+
+    population = population_all_combobox.get()
+    gene = gene_all_combobox.get()
+
+    # Pobranie danych z bazy
+    df = get_all_comparisons(
+        population,
+        gene
+    )
+
+    # Usunięcie poprzedniego wykresu / komunikatu
+    for widget in all_chart_frame.winfo_children():
+        widget.destroy()
+
+    if df.empty:
+
+        message = ttk.Label(
+            all_chart_frame,
+            text="Brak danych dla wybranych parametrów."
+        )
+
+        message.pack(pady=50)
+
+        return
+
+    # Etykiety wariantów
+    labels = df["rs_id"]
+
+    # Wartości AF
+    lab_values = df["lab_af_percent"]
+    ref_values = df["ref_af_percent"]
+
+    # Pozycje wariantów na osi Y
+    y = range(len(df))
+
+    fig, ax = plt.subplots(
+        figsize=(9, 5)
+    )
+
+    # Słupki LAB
+    ax.barh(
+        [i - 0.2 for i in y],
+        lab_values,
+        height=0.4,
+        label="Laboratorium"
+    )
+
+    # Słupki gnomAD
+    ax.barh(
+        [i + 0.2 for i in y],
+        ref_values,
+        height=0.4,
+        label="gnomAD"
+    )
+
+    ax.set_yticks(
+        list(y)
+    )
+
+    ax.set_yticklabels(
+        labels
+    )
+
+    ax.set_xlabel(
+        "Częstość allelu [%]"
+    )
+
+    ax.set_ylabel(
+        "Wariant"
+    )
+
+    ax.set_title(
+        f"LAB vs gnomAD — {population}"
+    )
+
+    ax.legend()
+
+    # Wybrana skala
+    scale = scale_all_combobox.get()
+
+    if scale == "Logarytmiczna":
+        ax.set_xscale("log")
+
+    fig.tight_layout()
+
+    canvas = FigureCanvasTkAgg(
+        fig,
+        master=all_chart_frame
+    )
+
+    canvas.draw()
+
+    canvas.get_tk_widget().pack(
+        fill="both",
+        expand=True
+    )
+
+    plt.close(fig)
+
+show_all_button = ttk.Button(
+    all_controls_frame,
+    text="Pokaż porównanie",
+    command=show_all_variants_chart
+)
+
+show_all_button.grid(
+    row=3,
+    column=0,
+    columnspan=2,
+    pady=15
+)
 
 def show_statistics():
 
@@ -553,7 +882,8 @@ def show_statistics():
     show_af_chart(
         row["lab_af_percent"],
         row["ref_af_percent"],
-        row["population"]
+        row["population"],
+        row["rs_id"]
     )
 
 show_button = ttk.Button(

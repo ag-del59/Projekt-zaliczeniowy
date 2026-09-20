@@ -875,7 +875,62 @@ def get_comparison_by_rs(rs_id, population):
 
         return df
 
+def get_all_comparisons(population, gene="Wszystkie"):
 
+    conn = sqlite3.connect(DB_NAME)
+
+    # Pobieramy wszystkie warianty
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT rs_id
+        FROM variants
+        WHERE rs_id IS NOT NULL
+        ORDER BY gene, rs_id
+    """)
+
+    rs_ids = [
+        row[0]
+        for row in cursor.fetchall()
+    ]
+
+    conn.close()
+
+    results = []
+
+    # Dla każdego wariantu korzystamy z funkcji,
+    # która już działa dla pojedynczego wariantu
+    for rs_id in rs_ids:
+
+        df = get_comparison_by_rs(
+            rs_id,
+            population
+        )
+
+        if df is None:
+            continue
+
+        row = df.iloc[0]
+
+        # Jeżeli wybrano konkretny gen,
+        # pomijamy warianty drugiego genu
+        if (
+            gene != "Wszystkie"
+            and row["gene"] != gene
+        ):
+            continue
+
+        results.append({
+            "gene": row["gene"],
+            "rs_id": row["rs_id"],
+            "hgvs_c": row["hgvs_c"],
+            "lab_af_percent": row["lab_af_percent"],
+            "ref_af_percent": row["ref_af_percent"],
+            "frequency_ratio": row["frequency_ratio"],
+            "p_value": row["p_value"]
+        })
+
+    return pd.DataFrame(results)
 
 
 if __name__ == "__main__":
