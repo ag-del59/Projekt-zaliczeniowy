@@ -809,6 +809,49 @@ significance_value.grid(row=3, column=1, padx=10, pady=5)
 
 
 
+# -------- AUTOMATYCZNE WNIOSKI --------
+conclusion_frame = ttk.LabelFrame(results_frame, text="Podsumowanie i wnioski")
+conclusion_frame.grid(row=4, column=0, columnspan=2, sticky="ew", padx=10, pady=10)
+conclusion_frame.columnconfigure(0, weight=1)
+# Pole tekstowe zawija długie wnioski i ma własny pionowy pasek przewijania.
+conclusion_text_frame = ttk.Frame(conclusion_frame)
+conclusion_text_frame.grid(row=0, column=0, sticky="nsew", padx=12, pady=12)
+conclusion_text_frame.columnconfigure(0, weight=1)
+conclusion_text_frame.rowconfigure(0, weight=1)
+
+conclusion_value = tk.Text(
+    conclusion_text_frame,
+    height=7,
+    width=32,
+    wrap="word",
+    font=("Arial", 10),
+    relief="flat",
+    background=root.cget("background"),
+    borderwidth=0,
+    padx=4,
+    pady=4,
+)
+conclusion_scrollbar = ttk.Scrollbar(
+    conclusion_text_frame, orient="vertical", command=conclusion_value.yview
+)
+conclusion_value.configure(yscrollcommand=conclusion_scrollbar.set)
+conclusion_value.grid(row=0, column=0, sticky="nsew")
+conclusion_scrollbar.grid(row=0, column=1, sticky="ns")
+
+
+def set_conclusion(text):
+    conclusion_value.configure(state="normal")
+    conclusion_value.delete("1.0", "end")
+    conclusion_value.insert("1.0", text)
+    conclusion_value.configure(state="disabled")
+    conclusion_value.yview_moveto(0)
+
+
+set_conclusion("Wybierz wariant i kliknij „Pokaż statystyki”, aby zobaczyć wnioski.")
+
+
+
+
 def show_cancer_chart(rs_id, age_min=None, age_max=None):
     """Rysuje AF lub liczbę nosicieli w grupach nowotworowych."""
 
@@ -1797,6 +1840,56 @@ chart_type_combobox.bind(
     "<<ComboboxSelected>>",
     update_selected_chart
 )
+
+def generate_variant_conclusion(row):
+    """Krótki, ostrożny wniosek na podstawie porównania LAB–gnomAD."""
+    import math
+
+    lab = float(row["lab_af_percent"])
+    ref = float(row["ref_af_percent"])
+    n = int(row["tested_n"])
+    rs = str(row["rs_id"])
+    pop = str(row["population"])
+
+    if not all(math.isfinite(v) for v in (lab, ref)) or n <= 0:
+        return "Nie można sformułować wniosku: brak wystarczających danych."
+
+    if lab > ref:
+        direction = "wyższa"
+    elif lab < ref:
+        direction = "niższa"
+    else:
+        direction = "taka sama"
+
+    result = (
+        f"Wariant {rs}: częstość allelu w grupie laboratoryjnej "
+        f"({lab:.4f}%) jest {direction} niż w populacji "
+        f"{pop} według gnomAD ({ref:.4f}%). "
+        f"Analiza obejmuje {n} przebadanych pacjentów. "
+    )
+
+    p = row.get("p_value")
+    try:
+        p = float(p)
+    except (TypeError, ValueError):
+        p = float("nan")
+
+    if math.isfinite(p):
+        if p < 0.05:
+            result += f"Test Fishera wskazuje na różnicę istotną statystycznie (p = {p:.3g}). "
+        else:
+            result += f"Test Fishera nie wykazał istotnej statystycznie różnicy (p = {p:.3g}). "
+    else:
+        result += "Nie można wiarygodnie ocenić istotności statystycznej. "
+
+    result += (
+        "Wynik ma charakter opisowy: istotność statystyczna nie oznacza "
+        "automatycznie znaczenia klinicznego. "
+        "Interpretacja zależy też od doboru badanej grupy."
+    )
+    return result
+
+
 def show_statistics():
 
     selected = variant_combobox.get()
@@ -1828,6 +1921,7 @@ def show_statistics():
         status_value.config(
             text="Brak danych referencyjnych lub pacjentów dla wybranych filtrów."
         )
+        set_conclusion("Brak danych — nie można sformułować wniosków.")
         return
 
     row = df.iloc[0]
@@ -1952,6 +2046,8 @@ def show_statistics():
         significance_value.config(
             text="Nie (p ≥ 0,05)"
         )
+
+    set_conclusion(generate_variant_conclusion(row))
 
 
 show_button = ttk.Button(
