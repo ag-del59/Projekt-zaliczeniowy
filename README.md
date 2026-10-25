@@ -142,11 +142,11 @@ projekt-brca/
 
 ## Zrzuty ekranu
 
-Dodaj własne zrzuty do folderu `screenshots/`:
+### Analiza pojedynczego wariantu
+![Analiza pojedynczego wariantu](screenshots/Analiza pojedynczego wariantu.png) 
 
-!\[Analiza pojedynczego wariantu](screenshots/analiza\_wariantu.png)
-
-!\[Porównanie wszystkich wariantów](screenshots/porownanie\_wariantow.png)
+### Porównanie wszystkich wariantów
+![Porównanie wariantów](screenshots/Analiza wszystkich wariantów.png)
 
 ## Wykorzystanie AI
 
