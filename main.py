@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from database import (
     get_variant_labels,
     get_comparison_by_rs,
@@ -12,8 +12,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 root = tk.Tk()
 
 root.title("Analiza wariantów BRCA1 / BRCA2")
-root.geometry("1200x700")
-root.minsize(1100, 650)
+root.geometry("1100x700")
+root.minsize(650, 450)
 
 title_label = ttk.Label(
     root,
@@ -33,39 +33,64 @@ view_buttons_frame.pack(
     pady=(0, 10)
 )
 
-single_view = ttk.Frame(root)
+# Przewijane obszary obu widoków. Canvas przewija całą zawartość,
+# natomiast wewnętrzne ramki zachowują dotychczasowy układ pack/grid.
+def create_scrollable_view(parent):
+    outer = ttk.Frame(parent)
+    canvas = tk.Canvas(outer, highlightthickness=0, borderwidth=0)
+    scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
 
-single_view.pack(
-    fill="both",
-    expand=True,
-    padx=20,
-    pady=10
-)
+    content = ttk.Frame(canvas)
+    window_id = canvas.create_window((0, 0), window=content, anchor="nw")
 
-all_view = ttk.Frame(root)
+    def update_region(event=None):
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def resize_content(event):
+        # Nie zwężamy zawartości poniżej minimalnej szerokości układu.
+        canvas.itemconfigure(window_id, width=max(event.width, 1000))
+        update_region()
+
+    content.bind("<Configure>", update_region)
+    canvas.bind("<Configure>", resize_content)
+    return outer, content, canvas
+
+
+single_outer, single_view, single_canvas = create_scrollable_view(root)
+all_outer, all_view, all_canvas = create_scrollable_view(root)
+single_outer.pack(fill="both", expand=True, padx=10, pady=5)
+
 
 def show_single_view():
-
-    all_view.pack_forget()
-
-    single_view.pack(
-        fill="both",
-        expand=True,
-        padx=20,
-        pady=10
-    )
+    all_outer.pack_forget()
+    single_outer.pack(fill="both", expand=True, padx=10, pady=5)
 
 
 def show_all_view():
+    single_outer.pack_forget()
+    all_outer.pack(fill="both", expand=True, padx=10, pady=5)
 
-    single_view.pack_forget()
 
-    all_view.pack(
-        fill="both",
-        expand=True,
-        padx=20,
-        pady=10
-    )
+def scroll_active_view(event):
+    # Obsługa Windows/macOS oraz Linux; tylko widoczny widok.
+    canvas = single_canvas if single_outer.winfo_ismapped() else all_canvas
+    if getattr(event, "num", None) == 4:
+        amount = -1
+    elif getattr(event, "num", None) == 5:
+        amount = 1
+    else:
+        amount = -int(event.delta / 120) if event.delta else 0
+        if amount == 0 and event.delta:
+            amount = -1 if event.delta > 0 else 1
+    canvas.yview_scroll(amount, "units")
+
+
+root.bind_all("<MouseWheel>", scroll_active_view)
+root.bind_all("<Button-4>", scroll_active_view)
+root.bind_all("<Button-5>", scroll_active_view)
 
 single_view_button = ttk.Button(
     view_buttons_frame,
@@ -208,6 +233,24 @@ scale_all_combobox.grid(
 )
 
 
+# Filtry pacjentów — widok wszystkich wariantów
+ttk.Label(all_controls_frame, text="Wiek od:").grid(row=3, column=0, padx=5, pady=5, sticky="e")
+age_min_all_entry = ttk.Entry(all_controls_frame, width=12)
+age_min_all_entry.grid(row=3, column=1, padx=5, pady=5, sticky="w")
+
+ttk.Label(all_controls_frame, text="Wiek do:").grid(row=4, column=0, padx=5, pady=5, sticky="e")
+age_max_all_entry = ttk.Entry(all_controls_frame, width=12)
+age_max_all_entry.grid(row=4, column=1, padx=5, pady=5, sticky="w")
+
+ttk.Label(all_controls_frame, text="Nowotwór:").grid(row=5, column=0, padx=5, pady=5, sticky="e")
+cancer_all_combobox = ttk.Combobox(
+    all_controls_frame, values=["Wszystkie", "Tak", "Nie"],
+    state="readonly", width=23
+)
+cancer_all_combobox.set("Wszystkie")
+cancer_all_combobox.grid(row=5, column=1, padx=5, pady=5)
+
+
 # ------------------------------------------------
 # WYKRES WSZYSTKICH WARIANTÓW
 # ------------------------------------------------
@@ -294,6 +337,27 @@ population_combobox.pack(
     padx=15,
     pady=10
 )
+
+# Filtry pacjentów — pojedynczy wariant
+patient_filters_frame = ttk.LabelFrame(left_frame, text="Filtry pacjentów")
+patient_filters_frame.pack(fill="x", padx=15, pady=5)
+
+ttk.Label(patient_filters_frame, text="Wiek od:").grid(row=0, column=0, padx=5, pady=5)
+age_min_entry = ttk.Entry(patient_filters_frame, width=8)
+age_min_entry.grid(row=0, column=1, padx=5, pady=5)
+
+ttk.Label(patient_filters_frame, text="Wiek do:").grid(row=0, column=2, padx=5, pady=5)
+age_max_entry = ttk.Entry(patient_filters_frame, width=8)
+age_max_entry.grid(row=0, column=3, padx=5, pady=5)
+
+ttk.Label(patient_filters_frame, text="Nowotwór:").grid(row=1, column=0, padx=5, pady=5)
+cancer_combobox = ttk.Combobox(
+    patient_filters_frame, values=["Wszystkie", "Tak", "Nie"],
+    state="readonly", width=15
+)
+cancer_combobox.set("Wszystkie")
+cancer_combobox.grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
+
 
 controls_frame = ttk.Frame(
     left_frame
@@ -621,15 +685,44 @@ def show_af_chart(lab_af, ref_af, population, rs_id):
 
     plt.close(fig)
 
+def read_patient_filters(age_min_entry, age_max_entry, cancer_combobox):
+    """Odczytuje i sprawdza filtry pacjentów."""
+    text_min = age_min_entry.get().strip()
+    text_max = age_max_entry.get().strip()
+    try:
+        age_min = int(text_min) if text_min else None
+        age_max = int(text_max) if text_max else None
+    except ValueError:
+        raise ValueError("Wiek musi być liczbą całkowitą.")
+
+    if age_min is not None and not 0 <= age_min <= 120:
+        raise ValueError("Wiek od musi mieścić się w zakresie 0–120.")
+    if age_max is not None and not 0 <= age_max <= 120:
+        raise ValueError("Wiek do musi mieścić się w zakresie 0–120.")
+    if age_min is not None and age_max is not None and age_min > age_max:
+        raise ValueError("Wiek od nie może być większy niż wiek do.")
+
+    selection = cancer_combobox.get()
+    has_cancer = {"Tak": "tak", "Nie": "nie"}.get(selection)
+    return age_min, age_max, has_cancer
+
+
 def show_all_variants_chart():
 
     population = population_all_combobox.get()
     gene = gene_all_combobox.get()
 
-    # Pobranie danych z bazy
+    try:
+        age_min, age_max, has_cancer = read_patient_filters(
+            age_min_all_entry, age_max_all_entry, cancer_all_combobox
+        )
+    except ValueError as error:
+        messagebox.showerror("Nieprawidłowe filtry", str(error))
+        return
+
     df = get_all_comparisons(
-        population,
-        gene
+        population, gene,
+        age_min=age_min, age_max=age_max, has_cancer=has_cancer
     )
 
     # Usunięcie poprzedniego wykresu / komunikatu
@@ -728,7 +821,7 @@ show_all_button = ttk.Button(
 )
 
 show_all_button.grid(
-    row=3,
+    row=6,
     column=0,
     columnspan=2,
     pady=15
@@ -746,14 +839,22 @@ def show_statistics():
     parts = selected.split(" — ")
     rs_id = parts[1]
 
+    try:
+        age_min, age_max, has_cancer = read_patient_filters(
+            age_min_entry, age_max_entry, cancer_combobox
+        )
+    except ValueError as error:
+        messagebox.showerror("Nieprawidłowe filtry", str(error))
+        return
+
     df = get_comparison_by_rs(
-        rs_id,
-        population
+        rs_id, population,
+        age_min=age_min, age_max=age_max, has_cancer=has_cancer
     )
 
     if df is None:
         status_value.config(
-            text="Brak danych referencyjnych dla wybranej populacji."
+            text="Brak danych referencyjnych lub pacjentów dla wybranych filtrów."
         )
         return
 
