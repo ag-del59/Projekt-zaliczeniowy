@@ -1063,15 +1063,38 @@ def update_cancer_chart(event=None):
     show_cancer_chart(rs_id, age_min, age_max)
 
 
+
+# Identyfikator zaplanowanego odświeżenia
+chart_update_job = None
+
+
 def on_age_slider_change(value=None):
+    global chart_update_job
+
     age_min = round(min_age_slider.get())
     age_max = round(max_age_slider.get())
 
     min_age_label.config(text=f"{age_min} lat")
     max_age_label.config(text=f"{age_max} lat")
 
+    # Anuluj poprzednie zaplanowane odświeżenie
+    if chart_update_job is not None:
+        root.after_cancel(chart_update_job)
+        chart_update_job = None
+
     if age_min <= age_max:
-        update_cancer_chart()
+        # Odśwież dopiero 300 ms po ostatnim ruchu suwaka
+        chart_update_job = root.after(
+            300,
+            refresh_chart_after_slider
+        )
+
+
+def refresh_chart_after_slider():
+    global chart_update_job
+    chart_update_job = None
+    update_cancer_chart()
+
 
 
 # Suwaki automatycznie aktualizują wykres
