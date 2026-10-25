@@ -3,7 +3,8 @@ from tkinter import ttk, messagebox
 from database import (
     get_variant_labels,
     get_comparison_by_rs,
-    get_all_comparisons
+    get_all_comparisons,
+    get_cancer_group_af
 )
 
 import matplotlib.pyplot as plt
@@ -369,7 +370,7 @@ controls_frame.pack(
 )
 chart_frame = ttk.LabelFrame(
     left_frame,
-    text="Porównanie AF"
+    text="Częstość wariantu a występowanie nowotworu"
 )
 
 chart_frame.pack(
@@ -626,64 +627,69 @@ significance_value = ttk.Label(
 significance_value.grid(row=3, column=1, padx=10, pady=5)
 
 
-def show_af_chart(lab_af, ref_af, population, rs_id):
-    # Usuwamy poprzedni wykres
+def show_cancer_chart(rs_id, age_min=None, age_max=None):
+    """Porównuje AF w grupach z nowotworem i bez, w wybranym wieku."""
     for widget in chart_frame.winfo_children():
         widget.destroy()
 
-    fig, ax = plt.subplots(
-        figsize=(4.5, 3.5)
-    )
+    df = get_cancer_group_af(rs_id, age_min, age_max)
+    groups = [("tak", "Z nowotworem"), ("nie", "Bez nowotworu")]
+    values, sizes = [], []
+    for code, label in groups:
+        subset = df[df["has_cancer"] == code] if not df.empty else df
+        if subset.empty:
+            values.append(0.0)
+            sizes.append(0)
+        else:
+            values.append(float(subset.iloc[0]["af_percent"]))
+            sizes.append(int(subset.iloc[0]["tested_n"]))
 
-    names = [
-        "Laboratorium",
-        f"gnomAD\n{population}"
-    ]
+    if not any(sizes):
+        ttk.Label(chart_frame, text="Brak pacjentów w wybranym zakresie wieku.").pack(pady=30)
+        return
 
-    values = [
-        lab_af,
-        ref_af
-    ]
-
-    bars = ax.bar(
-        names,
-        values
-    )
-    for bar, value in zip(bars, values):
+    fig, ax = plt.subplots(figsize=(5.3, 3.6))
+    labels = [label for _, label in groups]
+    bars = ax.bar(labels, values)
+    max_value = max(values)
+    logarithmic = scale_combobox.get() == "Logarytmiczna"
+    positive_values = [v for v in values if v > 0]
+    if logarithmic and positive_values:
+        ax.set_yscale("log")
+        minimum = min(positive_values)
+        ax.set_ylim(max(minimum / 10, 1e-8), max(max_value * 3, minimum * 2))
+    else:
+        ax.set_ylim(0, max(max_value * 1.3, 0.01))
+    for bar, value, size in zip(bars, values, sizes):
         ax.text(
             bar.get_x() + bar.get_width() / 2,
-            value,
-            f"{value:.4f}%",
-            ha="center",
-            va="bottom"
+            (value * 1.18 if logarithmic and positive_values and value > 0
+             else value + max(max_value * 0.035, 0.0003)),
+            f"{value:.4f}%\\n(n={size})" if size else "Brak pacjentów",
+            ha="center", va="bottom", fontsize=9
         )
-
-    # Pobranie wybranej skali
-    scale = scale_combobox.get()
-
-    if scale == "Logarytmiczna":
-        ax.set_yscale("log")
-
-    ax.set_ylabel("Częstość allelu [%]")
-    ax.set_title(
-        f"{rs_id}\nAF: laboratorium vs gnomAD"
-    )
-
+    if logarithmic and not positive_values:
+        ax.text(0.5, 0.5, "AF = 0 w obu grupach — skala liniowa",
+                transform=ax.transAxes, ha="center", va="center", fontsize=9)
+    elif logarithmic and any(v == 0 for v in values):
+        ax.text(0.5, 0.96, "AF = 0 nie jest widoczne na skali logarytmicznej",
+                transform=ax.transAxes, ha="center", va="top", fontsize=8)
+    ax.set_ylabel("Częstość allelu (AF) [%]")
+    ax.set_title(f"{rs_id} — grupy według statusu nowotworu")
     fig.tight_layout()
 
-    canvas = FigureCanvasTkAgg(
-        fig,
-        master=chart_frame
-    )
-
+    canvas = FigureCanvasTkAgg(fig, master=chart_frame)
     canvas.draw()
-
-    canvas.get_tk_widget().pack(
-        fill="both",
-        expand=True
-    )
-
+    canvas.get_tk_widget().pack(fill="both", expand=True)
     plt.close(fig)
+
+    ttk.Label(
+        chart_frame,
+        text="Obie grupy porównywane są w tym samym zakresie wieku.\\n"
+             "Wykres pokazuje dane syntetyczne, nie dowodzi związku przyczynowego.",
+        justify="center"
+    ).pack(pady=(0, 6))
+
 
 def read_patient_filters(age_min_entry, age_max_entry, cancer_combobox):
     """Odczytuje i sprawdza filtry pacjentów."""
@@ -852,6 +858,10 @@ def show_statistics():
         age_min=age_min, age_max=age_max, has_cancer=has_cancer
     )
 
+    # Wykres grup nowotworowych nie zależy od dostępności danych gnomAD.
+    # Celowo porównuje obie grupy niezależnie od filtra "Nowotwór".
+    show_cancer_chart(rs_id, age_min, age_max)
+
     if df is None:
         status_value.config(
             text="Brak danych referencyjnych lub pacjentów dla wybranych filtrów."
@@ -980,12 +990,6 @@ def show_statistics():
         significance_value.config(
             text="Nie (p ≥ 0,05)"
         )
-    show_af_chart(
-        row["lab_af_percent"],
-        row["ref_af_percent"],
-        row["population"],
-        row["rs_id"]
-    )
 
 show_button = ttk.Button(
     controls_frame,
@@ -995,31 +999,20 @@ show_button = ttk.Button(
 
 show_button.pack()
 
-ttk.Label(
-    controls_frame,
-    text="Skala wykresu:"
-).pack(pady=(10, 2))
-
+ttk.Label(controls_frame, text="Skala wykresu:").pack(pady=(10, 2))
 scale_combobox = ttk.Combobox(
-    controls_frame,
-    values=[
-        "Liniowa",
-        "Logarytmiczna"
-    ],
-    state="readonly",
-    width=18
+    controls_frame, values=["Liniowa", "Logarytmiczna"],
+    state="readonly", width=18
 )
-
 scale_combobox.set("Liniowa")
 scale_combobox.pack()
 
+
 def change_scale(event=None):
-    show_statistics()
+    if variant_combobox.get():
+        show_statistics()
 
 
-scale_combobox.bind(
-    "<<ComboboxSelected>>",
-    change_scale
-)
+scale_combobox.bind("<<ComboboxSelected>>", change_scale)
 
 root.mainloop()
