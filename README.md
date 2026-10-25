@@ -7,7 +7,7 @@ opisanymi jako gnomAD.
 
 **Temat zaliczenia:** 2. Analiza danych medycznych pacjentów.
 
-> \\\*\\\*Uwaga:\\\*\\\* Projekt ma charakter dydaktyczny. Dane pacjentów są
+> **Uwaga:** Projekt ma charakter dydaktyczny. Dane pacjentów są
 > syntetyczne, a uzyskane wyniki nie służą do diagnostyki ani do
 > wyciągania wniosków klinicznych.
 
@@ -41,7 +41,7 @@ openpyxl.
 * Python 3.10 lub nowszy (zalecany).
 * System z obsługą graficznego interfejsu Tkinter.
 * Pakiety z `requirements.txt`.
-* Plik bazy danych `brca\\\_database\\\_5000.db` umieszczony w katalogu
+* Plik bazy danych `brca_database_5000.db` umieszczony w katalogu
 roboczym aplikacji.
 
 ## Instalacja i uruchomienie
@@ -53,36 +53,36 @@ roboczym aplikacji.
 
 3. Aktywuj środowisko:
 
-   * Windows: `.venv\\\\Scripts\\\\activate`
+   * Windows: `.venvScriptsactivate`
    * Linux/macOS: `source .venv/bin/activate`
 4. Zainstaluj zależności:
 
 &#x20;   `bash python -m pip install -r requirements.txt`
 
 5. Upewnij się, że w katalogu znajduje się przygotowany plik
-`brca\\\_database\\\_5000.db`.
+`brca_database_5000.db`.
 6. Uruchom aplikację z tego katalogu:
 
 &#x20;   `bash python main.py`
 
 **Ważne:** w `database.py` baza jest wskazana przez względną ścieżkę
-`DB\\\_NAME = "brca\\\_database\\\_5000.db"`. Uruchomienie programu z innego
+`DB_NAME = "brca_database_5000.db"`. Uruchomienie programu z innego
 katalogu roboczego może skutkować błędem lub utworzeniem pustego pliku
 bazy.
 
 ### Gdy gotowa baza nie jest dołączona
 
 Do zbudowania bazy potrzebne są arkusze: -
-`BRCA1\\\_BRCA2\\\_5000\\\_pacjentow\\\_wiek\\\_nowotwor.xlsx` --- zakładki `Badania` i
-`Warianty`; - `gnomAD\\\_dane\\\_referencyjne\\\_BRCA1\\\_BRCA2.xlsx` --- zakładka
-`Dane\\\_gnomAD`.
+`BRCA1_BRCA2_5000_pacjentow_wiek_nowotwor.xlsx` --- zakładki `Badania` i
+`Warianty`; - `gnomAD_dane_referencyjne_BRCA1_BRCA2.xlsx` --- zakładka
+`Dane_gnomAD`.
 
-W wersji `database.py` zawierającej blok `if \\\_\\\_name\\\_\\\_ == "\\\_\\\_main\\\_\\\_":`
+W wersji `database.py` zawierającej blok `if __name__ == "__main__":`
 można uruchomić `python database.py`, aby utworzyć i wypełnić bazę.
 Jeśli blok został usunięty podczas porządkowania kodu, bazę trzeba
-przygotować osobnym skryptem wywołującym `create\\\_database()`,
-`import\\\_tests\\\_from\\\_excel()`, `import\\\_variants\\\_from\\\_excel()` i
-`import\\\_reference\\\_from\\\_excel()` w tej kolejności. **Nie wykonuj importu
+przygotować osobnym skryptem wywołującym `create_database()`,
+`import_tests_from_excel()`, `import_variants_from_excel()` i
+`import_reference_from_excel()` w tej kolejności. **Nie wykonuj importu
 ponownie na gotowej bazie bez kopii zapasowej.**
 
 ## Jak korzystać z programu
@@ -112,7 +112,7 @@ Częstość allelu w grupie laboratoryjnej:
 
 `AF = (liczba heterozygot + 2 × liczba homozygot) / (2 × liczba przebadanych pacjentów)`
 
-Wartość procentowa: `AF \\\[%] = 100 × AF`.
+Wartość procentowa: `AF [%] = 100 × AF`.
 
 W analizie pojedynczego wariantu program porównuje liczbę alleli
 wariantowych i pozostałych alleli w grupie laboratoryjnej oraz
@@ -131,13 +131,13 @@ wnioskować o rzeczywistym ryzyku zachorowania.
 projekt-brca/
 ├── main.py                          # interfejs użytkownika i wizualizacje
 ├── database.py                      # baza SQLite, zapytania i statystyki
-├── brca\\\_database\\\_5000.db            # przykładowa baza (do dołączenia)
+├── brca_database_5000.db            # przykładowa baza (do dołączenia)
 ├── requirements.txt                 # zależności Pythona
 ├── README.md                        # opis projektu
-├── SPECYFIKACJA\\\_GUI.md              # specyfikacja aplikacji
+├── SPECYFIKACJA_GUI.md              # specyfikacja aplikacji
 └── screenshots/                     # zrzuty ekranu (do uzupełnienia)
-    ├── analiza\\\_wariantu.png
-    └── porownanie\\\_wariantow.png
+    ├── analiza_wariantu.png
+    └── porownanie_wariantow.png
 ```
 
 ## Zrzuty ekranu
