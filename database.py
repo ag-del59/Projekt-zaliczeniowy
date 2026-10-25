@@ -922,6 +922,79 @@ def get_all_comparisons(population, gene="Wszystkie",
     return pd.DataFrame(results)
 
 
+def get_variant_age_groups(rs_id):
+    """
+    Zwraca liczbę przebadanych pacjentów i nosicieli wariantu
+    w grupach wiekowych, osobno według statusu nowotworowego.
+    Każdy pacjent jest liczony maksymalnie raz w danej grupie.
+    """
+
+    query = """
+        WITH age_groups AS (
+            SELECT
+                p.patient_id,
+                p.has_cancer,
+                CASE
+                    WHEN p.age BETWEEN 18 AND 30 THEN '18–30'
+                    WHEN p.age BETWEEN 31 AND 40 THEN '31–40'
+                    WHEN p.age BETWEEN 41 AND 50 THEN '41–50'
+                    WHEN p.age BETWEEN 51 AND 60 THEN '51–60'
+                    WHEN p.age BETWEEN 61 AND 70 THEN '61–70'
+                    WHEN p.age >= 71 THEN '71+'
+                END AS age_group,
+                CASE
+                    WHEN p.age BETWEEN 18 AND 30 THEN 1
+                    WHEN p.age BETWEEN 31 AND 40 THEN 2
+                    WHEN p.age BETWEEN 41 AND 50 THEN 3
+                    WHEN p.age BETWEEN 51 AND 60 THEN 4
+                    WHEN p.age BETWEEN 61 AND 70 THEN 5
+                    WHEN p.age >= 71 THEN 6
+                END AS age_order,
+                MAX(
+                    CASE
+                        WHEN f.finding_id IS NOT NULL
+                         AND f.zygosity IN (
+                             'heterozygota', 'homozygota'
+                         )
+                        THEN 1 ELSE 0
+                    END
+                ) AS is_carrier
+            FROM variants v
+            JOIN tests t
+                ON t.gene = v.gene
+            JOIN patients p
+                ON p.patient_id = t.patient_id
+            LEFT JOIN findings f
+                ON f.test_id = t.test_id
+               AND f.variant_id = v.variant_id
+            WHERE v.rs_id = ?
+              AND p.age >= 18
+              AND p.has_cancer IN ('tak', 'nie')
+            GROUP BY p.patient_id, p.has_cancer, age_group, age_order
+        )
+        SELECT
+            age_group,
+            age_order,
+            has_cancer,
+            COUNT(*) AS tested_n,
+            SUM(is_carrier) AS carriers_n
+        FROM age_groups
+        WHERE age_group IS NOT NULL
+        GROUP BY age_group, age_order, has_cancer
+        ORDER BY age_order, has_cancer
+    """
+
+    with sqlite3.connect(DB_NAME) as conn:
+        df = pd.read_sql_query(query, conn, params=(rs_id,))
+
+    if not df.empty:
+        df["carriers_percent"] = (
+            100 * df["carriers_n"] / df["tested_n"]
+        )
+
+    return df
+
+
 if __name__ == "__main__":
 
     create_database()

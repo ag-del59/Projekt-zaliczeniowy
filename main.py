@@ -1,17 +1,19 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import pandas as pd
+import numpy as np
 from database import (
     get_variant_labels,
     get_comparison_by_rs,
     get_all_comparisons,
-    get_cancer_group_af
+    get_cancer_group_af,
+    get_variant_age_groups
 )
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 from openpyxl.chart import BarChart, Reference
-from openpyxl.styles import Font, PatternFill
 
 root = tk.Tk()
 
@@ -255,6 +257,41 @@ cancer_all_combobox.set("Wszystkie")
 cancer_all_combobox.grid(row=5, column=1, padx=5, pady=5)
 
 
+# ------------------------------------------
+# WYBÓR RODZAJU WYKRESU
+# ------------------------------------------
+
+ttk.Label(
+    all_controls_frame,
+    text="Rodzaj wykresu:"
+).grid(
+    row=6,
+    column=0,
+    padx=5,
+    pady=5,
+    sticky="e"
+)
+
+chart_type_all_combobox = ttk.Combobox(
+    all_controls_frame,
+    values=[
+        "Słupkowy",
+        "Punktowy LAB vs gnomAD"
+    ],
+    state="readonly",
+    width=25
+)
+
+chart_type_all_combobox.set("Słupkowy")
+
+chart_type_all_combobox.grid(
+    row=6,
+    column=1,
+    padx=5,
+    pady=5
+)
+
+
 # ------------------------------------------------
 # WYKRES WSZYSTKICH WARIANTÓW
 # ------------------------------------------------
@@ -397,13 +434,45 @@ chart_filters_frame = ttk.LabelFrame(
 )
 chart_filters_frame.pack(fill="x", padx=15, pady=10)
 
+# Wybór rodzaju wykresu
+ttk.Label(
+    chart_filters_frame,
+    text="Rodzaj wykresu:"
+).grid(
+    row=4,
+    column=0,
+    padx=5,
+    pady=5,
+    sticky="e"
+)
+
+chart_type_var = tk.StringVar(
+    value="Nowotwór — porównanie grup"
+)
+
+chart_type_combobox = ttk.Combobox(
+    chart_filters_frame,
+    textvariable=chart_type_var,
+    values=[
+        "Nowotwór — porównanie grup",
+        "Nosicielstwo według wieku"
+    ],
+    state="readonly",
+    width=30
+)
+
+chart_type_combobox.grid(
+    row=4,
+    column=1,
+    columnspan=2,
+    padx=5,
+    pady=5
+)
 
 # ------------------------------------------
 # SUWAKI WIEKU DLA WYKRESU
 # ------------------------------------------
 
-chart_age_min = tk.IntVar(value=18)
-chart_age_max = tk.IntVar(value=90)
 
 ttk.Label(
     chart_filters_frame,
@@ -793,7 +862,10 @@ def show_cancer_chart(rs_id, age_min=None, age_max=None):
         ).pack(pady=30)
         return
 
-    fig, ax = plt.subplots(figsize=(5.3, 3.6))
+    fig, ax = plt.subplots(
+        figsize=(6, 4.5),
+        layout="constrained"
+    )
 
     labels = [label for _, label in groups]
     bars = ax.bar(labels, values)
@@ -804,10 +876,15 @@ def show_cancer_chart(rs_id, age_min=None, age_max=None):
         ax.set_yscale("log")
         ax.set_ylim(
             max(min(positive) / 10, 1e-8),
-            max(values) * 3
+            max(values) * 5
         )
     else:
-        ax.set_ylim(0, max(max(values) * 1.3, 1))
+        max_value = max(values)
+
+        if max_value > 0:
+            ax.set_ylim(0, max_value * 1.6)
+        else:
+            ax.set_ylim(0, 1)
 
     for bar, value, n, carrier_n in zip(
         bars, values, tested, carriers
@@ -818,9 +895,9 @@ def show_cancer_chart(rs_id, age_min=None, age_max=None):
             label = f"{value:.4f}%\n(n={n})"
 
         if logarithmic and positive and value > 0:
-            y = value * 1.15
+            y = value * 1.08
         else:
-            y = value + max(max(values) * 0.04, 0.05)
+            y = value + max(max(values) * 0.03, 0.0001)
 
         if value > 0 or not logarithmic:
             ax.text(
@@ -829,7 +906,7 @@ def show_cancer_chart(rs_id, age_min=None, age_max=None):
                 label,
                 ha="center",
                 va="bottom",
-                fontsize=9
+                fontsize=8
             )
 
     if metric == "Liczba nosicieli":
@@ -849,7 +926,7 @@ def show_cancer_chart(rs_id, age_min=None, age_max=None):
             fontsize=8
         )
 
-    fig.tight_layout()
+
 
     canvas = FigureCanvasTkAgg(fig, master=chart_frame)
     canvas.draw()
@@ -954,6 +1031,86 @@ def show_all_variants_chart():
     lab_values = df["lab_af_percent"]
     ref_values = df["ref_af_percent"]
 
+
+    # ------------------------------------------
+    # WYKRES PUNKTOWY LAB VS GNOMAD
+    # ------------------------------------------
+
+    chart_type = chart_type_all_combobox.get()
+
+    if chart_type == "Punktowy LAB vs gnomAD":
+
+        fig, ax = plt.subplots(figsize=(9, 5))
+
+        ax.scatter(
+            ref_values,
+            lab_values,
+            alpha=0.75,
+            s=45,
+            label="Warianty BRCA"
+        )
+
+        # Linia równej częstości LAB = gnomAD
+        max_value = max(
+            float(lab_values.max()),
+            float(ref_values.max()),
+            0.001
+        )
+
+        ax.plot(
+            [0, max_value],
+            [0, max_value],
+            linestyle="--",
+            color="gray",
+            label="LAB = gnomAD"
+        )
+
+        ax.set_xlabel("gnomAD AF [%]")
+        ax.set_ylabel("LAB AF [%]")
+        ax.set_title(
+            f"Porównanie częstości wariantów — {population}"
+        )
+
+        ax.grid(True, alpha=0.25)
+        ax.legend()
+
+        # Identyczne zakresy obu osi ułatwiają interpretację
+        ax.set_xlim(0, max_value * 1.05)
+        ax.set_ylim(0, max_value * 1.05)
+
+        if scale_all_combobox.get() == "Logarytmiczna":
+            positive = [
+                float(v)
+                for v in list(lab_values) + list(ref_values)
+                if v > 0
+            ]
+
+            if positive:
+                lower = min(positive) / 2
+                upper = max_value * 2
+
+                ax.set_xscale("log")
+                ax.set_yscale("log")
+                ax.set_xlim(lower, upper)
+                ax.set_ylim(lower, upper)
+
+        fig.tight_layout()
+
+        canvas = FigureCanvasTkAgg(
+            fig,
+            master=all_chart_frame
+        )
+
+        canvas.draw()
+        canvas.get_tk_widget().pack(
+            fill="both",
+            expand=True
+        )
+
+        plt.close(fig)
+
+        return
+
     # Pozycje wariantów na osi Y
     y = range(len(df))
 
@@ -1021,6 +1178,11 @@ def show_all_variants_chart():
 
     plt.close(fig)
 
+chart_type_all_combobox.bind(
+    "<<ComboboxSelected>>",
+    lambda event: show_all_variants_chart()
+)
+
 show_all_button = ttk.Button(
     all_controls_frame,
     text="Pokaż porównanie",
@@ -1028,7 +1190,7 @@ show_all_button = ttk.Button(
 )
 
 show_all_button.grid(
-    row=6,
+    row=7,
     column=0,
     columnspan=2,
     pady=15
@@ -1040,6 +1202,12 @@ show_all_button.grid(
 # ------------------------------------------
 
 def update_cancer_chart(event=None):
+
+    # Jeśli wybrano wykres wiekowy,
+    # nie uruchamiaj wykresu nowotworowego.
+    if chart_type_combobox.get() == "Nosicielstwo według wieku":
+        return
+
     selected = variant_combobox.get()
 
     if not selected:
@@ -1102,10 +1270,7 @@ min_age_slider.configure(command=on_age_slider_change)
 max_age_slider.configure(command=on_age_slider_change)
 
 # Zmiana rodzaju analizy i skali
-chart_metric_combobox.bind(
-    "<<ComboboxSelected>>",
-    update_cancer_chart
-)
+
 
 chart_scale_combobox.bind(
     "<<ComboboxSelected>>",
@@ -1114,7 +1279,7 @@ chart_scale_combobox.bind(
 
 # Zmiana wariantu
 def variant_changed(event=None):
-    update_cancer_chart()
+    update_selected_chart()
     show_statistics()
 
 
@@ -1417,6 +1582,140 @@ def export_all_excel():
     except Exception as error:
         messagebox.showerror("Błąd eksportu", str(error))
 
+
+
+def show_age_groups_chart_embedded():
+
+    selected = variant_combobox.get()
+
+    if not selected:
+        return
+
+    parts = selected.split(" — ")
+
+    if len(parts) < 2:
+        return
+
+    rs_id = parts[1].strip()
+
+    df = get_variant_age_groups(rs_id)
+
+    if df.empty:
+        messagebox.showinfo(
+            "Brak danych",
+            "Brak danych dla wybranego wariantu."
+        )
+        return
+
+    # Usuń poprzedni wykres
+    for widget in chart_frame.winfo_children():
+        widget.destroy()
+
+    figure = Figure(figsize=(8, 4.5), dpi=100)
+    ax = figure.add_subplot(111)
+
+    age_groups = [
+        "18–30", "31–40", "41–50",
+        "51–60", "61–70", "71+"
+    ]
+
+    metric = chart_metric_combobox.get()
+
+    if metric == "Liczba nosicieli":
+        column = "carriers_n"
+        ylabel = "Liczba nosicieli"
+    else:
+        column = "carriers_percent"
+        ylabel = "Odsetek nosicieli [%]"
+
+    cancer_data = (
+        df[df["has_cancer"] == "tak"]
+        .set_index("age_group")[column]
+        .reindex(age_groups, fill_value=0)
+    )
+
+    no_cancer_data = (
+        df[df["has_cancer"] == "nie"]
+        .set_index("age_group")[column]
+        .reindex(age_groups, fill_value=0)
+    )
+
+    positions = np.arange(len(age_groups))
+    width = 0.36
+
+    ax.bar(
+        positions - width / 2,
+        cancer_data.values,
+        width,
+        label="Z nowotworem",
+        color="#B35C72"
+    )
+
+    ax.bar(
+        positions + width / 2,
+        no_cancer_data.values,
+        width,
+        label="Bez nowotworu",
+        color="#4B8278"
+    )
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels(age_groups)
+    ax.set_xlabel("Grupa wiekowa [lata]")
+    ax.set_ylabel(ylabel)
+
+    ax.set_title(
+        f"Nosicielstwo wariantu {rs_id} według wieku"
+    )
+
+    # Automatyczne dopasowanie osi Y
+    max_value = max(
+        float(cancer_data.max()),
+        float(no_cancer_data.max())
+    )
+
+    if max_value > 0:
+        ax.set_ylim(0, max_value * 1.15)
+    else:
+        ax.set_ylim(0, 1)
+
+    # Liczby całkowite na osi liczby nosicieli
+    if column == "carriers_n":
+        from matplotlib.ticker import MaxNLocator
+        ax.yaxis.set_major_locator(
+            MaxNLocator(integer=True)
+        )
+
+    ax.legend()
+    ax.grid(axis="y", alpha=0.25)
+    ax.set_axisbelow(True)
+
+    figure.tight_layout()
+
+    canvas = FigureCanvasTkAgg(
+        figure,
+        master=chart_frame
+    )
+
+    canvas.draw()
+    canvas.get_tk_widget().pack(
+        fill="both",
+        expand=True
+    )
+
+def update_selected_chart(event=None):
+
+    chart_type = chart_type_combobox.get()
+
+    if chart_type == "Nosicielstwo według wieku":
+        show_age_groups_chart_embedded()
+    else:
+        update_cancer_chart()
+chart_metric_combobox.bind(
+    "<<ComboboxSelected>>",
+    update_selected_chart
+)
+
 def show_statistics():
 
     selected = variant_combobox.get()
@@ -1601,12 +1900,16 @@ export_all_button = ttk.Button(
 )
 
 export_all_button.grid(
-    row=7,
+    row=8,
     column=0,
     columnspan=2,
     pady=10
 )
 
+chart_type_combobox.bind(
+    "<<ComboboxSelected>>",
+    update_selected_chart
+)
 
 root.mainloop()
 
