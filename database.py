@@ -833,6 +833,8 @@ def get_cancer_group_af(rs_id, age_min=None, age_max=None):
     query = """
         SELECT p.has_cancer,
                COUNT(DISTINCT t.patient_id) AS tested_n,
+               COUNT(DISTINCT CASE WHEN f.zygosity IN ('heterozygota', 'homozygota')
+                     THEN t.patient_id END) AS carriers_n,
                COUNT(DISTINCT CASE WHEN f.zygosity = 'heterozygota'
                      THEN t.patient_id END) AS heterozygous_n,
                COUNT(DISTINCT CASE WHEN f.zygosity = 'homozygota'
