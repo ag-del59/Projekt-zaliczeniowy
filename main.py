@@ -1261,7 +1261,9 @@ def on_age_slider_change(value=None):
 def refresh_chart_after_slider():
     global chart_update_job
     chart_update_job = None
-    update_cancer_chart()
+
+    if chart_type_combobox.get() == "Nowotwór — porównanie grup":
+        update_cancer_chart()
 
 
 
@@ -1272,10 +1274,7 @@ max_age_slider.configure(command=on_age_slider_change)
 # Zmiana rodzaju analizy i skali
 
 
-chart_scale_combobox.bind(
-    "<<ComboboxSelected>>",
-    update_cancer_chart
-)
+
 
 # Zmiana wariantu
 def variant_changed(event=None):
@@ -1708,14 +1707,41 @@ def update_selected_chart(event=None):
     chart_type = chart_type_combobox.get()
 
     if chart_type == "Nosicielstwo według wieku":
+
+        # Zablokuj suwaki wieku
+        min_age_slider.configure(state="disabled")
+        max_age_slider.configure(state="disabled")
+
+        # Wykres wiekowy zawsze w skali liniowej
+        chart_scale_combobox.set("Liniowa")
+        chart_scale_combobox.configure(state="disabled")
+
+        # Wyświetl wykres wiekowy
         show_age_groups_chart_embedded()
+
     else:
+
+        # Odblokuj suwaki wieku
+        min_age_slider.configure(state="normal")
+        max_age_slider.configure(state="normal")
+
+        # Odblokuj wybór skali
+        chart_scale_combobox.configure(state="readonly")
+
+        # Wyświetl wykres nowotworowy
         update_cancer_chart()
 chart_metric_combobox.bind(
     "<<ComboboxSelected>>",
     update_selected_chart
 )
-
+chart_scale_combobox.bind(
+    "<<ComboboxSelected>>",
+    update_selected_chart
+)
+chart_type_combobox.bind(
+    "<<ComboboxSelected>>",
+    update_selected_chart
+)
 def show_statistics():
 
     selected = variant_combobox.get()
@@ -1906,10 +1932,7 @@ export_all_button.grid(
     pady=10
 )
 
-chart_type_combobox.bind(
-    "<<ComboboxSelected>>",
-    update_selected_chart
-)
+
 
 root.mainloop()
 
