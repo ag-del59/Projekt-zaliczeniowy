@@ -1042,11 +1042,11 @@ def show_all_variants_chart():
 
         fig, ax = plt.subplots(figsize=(9, 5))
 
-        ax.scatter(
+        scatter = ax.scatter(
             ref_values,
             lab_values,
             alpha=0.75,
-            s=45,
+            s=100,
             label="Warianty BRCA"
         )
 
@@ -1067,14 +1067,9 @@ def show_all_variants_chart():
 
         ax.set_xlabel("gnomAD AF [%]")
         ax.set_ylabel("LAB AF [%]")
-        ax.set_title(
-            f"Porównanie częstości wariantów — {population}"
-        )
-
+        ax.set_title(f"Porównanie częstości wariantów — {population}")
         ax.grid(True, alpha=0.25)
         ax.legend()
-
-        # Identyczne zakresy obu osi ułatwiają interpretację
         ax.set_xlim(0, max_value * 1.05)
         ax.set_ylim(0, max_value * 1.05)
 
@@ -1084,11 +1079,9 @@ def show_all_variants_chart():
                 for v in list(lab_values) + list(ref_values)
                 if v > 0
             ]
-
             if positive:
                 lower = min(positive) / 2
                 upper = max_value * 2
-
                 ax.set_xscale("log")
                 ax.set_yscale("log")
                 ax.set_xlim(lower, upper)
@@ -1096,19 +1089,71 @@ def show_all_variants_chart():
 
         fig.tight_layout()
 
-        canvas = FigureCanvasTkAgg(
-            fig,
-            master=all_chart_frame
-        )
+        canvas = FigureCanvasTkAgg(fig, master=all_chart_frame)
+        canvas.get_tk_widget().pack(fill="both", expand=True)
 
+        # Informacja o wskazanym wariancie, widoczna także poza wykresem.
+        selected_info = ttk.Label(
+            all_chart_frame,
+            text="Najedź na punkt lub kliknij go, aby zobaczyć wariant.",
+            justify="left"
+        )
+        selected_info.pack(pady=(5, 10))
+
+        annotation = ax.annotate(
+            "", xy=(0, 0), xytext=(15, 15), textcoords="offset points",
+            bbox=dict(boxstyle="round,pad=0.5", fc="white", ec="gray", alpha=0.95),
+            arrowprops=dict(arrowstyle="->")
+        )
+        annotation.set_visible(False)
+
+        # Współrzędne punktów w pikselach, więc działa także dla skali log.
+        def closest_point(event):
+            if event.inaxes is not ax or event.x is None or event.y is None:
+                return None
+            offsets = scatter.get_offsets()
+            if len(offsets) == 0:
+                return None
+            positions = ax.transData.transform(offsets)
+            distances = np.hypot(
+                positions[:, 0] - event.x,
+                positions[:, 1] - event.y
+            )
+            i = int(np.argmin(distances))
+            return i if distances[i] <= 18 else None
+
+        def show_point(i):
+            x = float(ref_values.iloc[i])
+            y = float(lab_values.iloc[i])
+            rs_id = str(df.iloc[i]["rs_id"])
+            label = (
+                f"Wariant: {rs_id}\n"
+                f"AF laboratorium: {y:.4f}%\n"
+                f"AF gnomAD: {x:.4f}%"
+            )
+            annotation.xy = (x, y)
+            annotation.set_text(label)
+            annotation.set_visible(True)
+            selected_info.configure(text=label.replace("\n", "  |  "))
+            canvas.draw_idle()
+
+        def on_mouse_move(event):
+            i = closest_point(event)
+            if i is not None:
+                show_point(i)
+            elif annotation.get_visible():
+                annotation.set_visible(False)
+                canvas.draw_idle()
+
+        def on_click(event):
+            i = closest_point(event)
+            if i is not None:
+                show_point(i)
+
+        canvas.mpl_connect("motion_notify_event", on_mouse_move)
+        canvas.mpl_connect("button_press_event", on_click)
         canvas.draw()
-        canvas.get_tk_widget().pack(
-            fill="both",
-            expand=True
-        )
-
         plt.close(fig)
-
         return
 
     # Pozycje wariantów na osi Y
@@ -1715,7 +1760,12 @@ def update_selected_chart(event=None):
         # Wykres wiekowy zawsze w skali liniowej
         chart_scale_combobox.set("Liniowa")
         chart_scale_combobox.configure(state="disabled")
+        chart_metric_combobox.configure(
+            values=["Odsetek nosicieli [%]", "Liczba nosicieli"]
+        )
 
+        if chart_metric_combobox.get() == "Częstość allelu (AF)":
+            chart_metric_combobox.set("Odsetek nosicieli [%]")
         # Wyświetl wykres wiekowy
         show_age_groups_chart_embedded()
 
@@ -1727,7 +1777,12 @@ def update_selected_chart(event=None):
 
         # Odblokuj wybór skali
         chart_scale_combobox.configure(state="readonly")
+        chart_metric_combobox.configure(
+            values=["Częstość allelu (AF)", "Liczba nosicieli"]
+        )
 
+        if chart_metric_combobox.get() == "Odsetek nosicieli [%]":
+            chart_metric_combobox.set("Częstość allelu (AF)")
         # Wyświetl wykres nowotworowy
         update_cancer_chart()
 chart_metric_combobox.bind(
@@ -1769,7 +1824,7 @@ def show_statistics():
 
 
 
-    if df is None:
+    if df is None or df.empty:
         status_value.config(
             text="Brak danych referencyjnych lub pacjentów dla wybranych filtrów."
         )
@@ -1935,4 +1990,5 @@ export_all_button.grid(
 
 
 root.mainloop()
+
 
