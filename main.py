@@ -1,5 +1,6 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
+import pandas as pd
 from database import (
     get_variant_labels,
     get_comparison_by_rs,
@@ -9,6 +10,8 @@ from database import (
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from openpyxl.chart import BarChart, Reference
+from openpyxl.styles import Font, PatternFill
 
 root = tk.Tk()
 
@@ -280,7 +283,7 @@ all_chart_info.pack(
 # Lewa strona
 left_frame = ttk.LabelFrame(
     single_view,
-    text="Wybór danych"
+    text="Panel analizy BRCA"
 )
 
 left_frame.grid(
@@ -305,10 +308,21 @@ single_view.columnconfigure(
     1,
     weight=1
 )
+# Panel filtrów statystycznych
+statistics_filters_frame = ttk.LabelFrame(
+    left_frame,
+    text="1. STATYSTYKI — LAB vs gnomAD",
+    padding=12
+)
 
+statistics_filters_frame.pack(
+    fill="x",
+    padx=15,
+    pady=(10, 15)
+)
 variant_labels = get_variant_labels()
 variant_combobox = ttk.Combobox(
-    left_frame,
+    statistics_filters_frame,
     values=variant_labels,
     width=65,
     state="readonly"
@@ -320,7 +334,7 @@ variant_combobox.pack(
 )
 
 population_combobox = ttk.Combobox(
-    left_frame,
+    statistics_filters_frame,
     values=[
         "Global",
         "European (non-Finnish)",
@@ -340,7 +354,10 @@ population_combobox.pack(
 )
 
 # Filtry pacjentów — pojedynczy wariant
-patient_filters_frame = ttk.LabelFrame(left_frame, text="Filtry pacjentów")
+patient_filters_frame = ttk.LabelFrame(
+    statistics_filters_frame,
+    text="Filtry pacjentów — tylko statystyki"
+)
 patient_filters_frame.pack(fill="x", padx=15, pady=5)
 
 ttk.Label(patient_filters_frame, text="Wiek od:").grid(row=0, column=0, padx=5, pady=5)
@@ -361,7 +378,7 @@ cancer_combobox.grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
 
 
 controls_frame = ttk.Frame(
-    left_frame
+    statistics_filters_frame
 )
 
 controls_frame.pack(
@@ -375,7 +392,8 @@ controls_frame.pack(
 
 chart_filters_frame = ttk.LabelFrame(
     left_frame,
-    text="Filtry wykresu"
+    text="2. WYKRES — wariant a występowanie nowotworu | Filtry",
+    padding=12
 )
 chart_filters_frame.pack(fill="x", padx=15, pady=10)
 
@@ -463,7 +481,8 @@ chart_scale_combobox.grid(row=3, column=1, padx=5, pady=5)
 
 chart_frame = ttk.LabelFrame(
     left_frame,
-    text="Częstość wariantu a występowanie nowotworu"
+    text="2. WYKRES — wyniki analizy",
+    padding=10
 )
 
 chart_frame.pack(
@@ -1081,6 +1100,300 @@ variant_combobox.bind(
     variant_changed
 )
 
+# ==========================================
+# EKSPORT POJEDYNCZEGO WARIANTU DO EXCELA
+# ==========================================
+
+def export_single_excel():
+    selected = variant_combobox.get()
+
+    if not selected:
+        messagebox.showwarning(
+            "Brak wariantu", "Najpierw wybierz wariant."
+        )
+        return
+
+    try:
+        rs_id = selected.split(" — ")[1]
+        population = population_combobox.get()
+
+        # Filtry statystyk LAB vs gnomAD
+        age_min, age_max, has_cancer = read_patient_filters(
+            age_min_entry, age_max_entry, cancer_combobox
+        )
+
+        df = get_comparison_by_rs(
+            rs_id, population,
+            age_min=age_min,
+            age_max=age_max,
+            has_cancer=has_cancer
+        )
+
+        # Niezależne filtry wykresu nowotworowego
+        chart_min = round(min_age_slider.get())
+        chart_max = round(max_age_slider.get())
+
+        if chart_min > chart_max:
+            raise ValueError("Nieprawidłowy zakres wieku wykresu.")
+
+        cancer_df = get_cancer_group_af(
+            rs_id, chart_min, chart_max
+        )
+
+        if (df is None or df.empty) and cancer_df.empty:
+            messagebox.showwarning(
+                "Brak danych", "Nie ma danych do eksportu."
+            )
+            return
+
+        filename = filedialog.asksaveasfilename(
+            title="Zapisz analizę wariantu",
+            defaultextension=".xlsx",
+            filetypes=[("Plik Excel", "*.xlsx")],
+            initialfile=f"BRCA_{rs_id}.xlsx"
+        )
+
+        if not filename:
+            return
+
+        metric = chart_metric_combobox.get()
+        metric_column = (
+            "Liczba nosicieli"
+            if metric == "Liczba nosicieli"
+            else "AF [%]"
+        )
+
+        rows = []
+
+        for code, label in [
+            ("tak", "Z nowotworem"),
+            ("nie", "Bez nowotworu")
+        ]:
+            subset = (
+                cancer_df[cancer_df["has_cancer"] == code]
+                if not cancer_df.empty else cancer_df
+            )
+
+            if subset.empty:
+                tested = 0
+                carriers = 0
+                af = 0.0
+            else:
+                row = subset.iloc[0]
+                tested = int(row["tested_n"])
+                carriers = (
+                    int(row["heterozygous_n"]) +
+                    int(row["homozygous_n"])
+                )
+                af = float(row["af_percent"])
+
+            rows.append({
+                "Grupa": label,
+                "Przebadani": tested,
+                "Liczba nosicieli": carriers,
+                "AF [%]": af
+            })
+
+        chart_df = pd.DataFrame(rows)
+
+        filters_df = pd.DataFrame([
+            ["Wariant", rs_id],
+            ["Populacja gnomAD", population],
+            ["Wiek od - statystyki", age_min],
+            ["Wiek do - statystyki", age_max],
+            ["Nowotwór - statystyki", cancer_combobox.get()],
+            ["Wiek od - wykres", chart_min],
+            ["Wiek do - wykres", chart_max],
+            ["Rodzaj wykresu", metric],
+            ["Skala w aplikacji", chart_scale_combobox.get()],
+            ["Dane", "Syntetyczne"]
+        ], columns=["Parametr", "Wartość"])
+
+        with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+            if df is not None and not df.empty:
+                df.to_excel(
+                    writer,
+                    sheet_name="LAB vs gnomAD",
+                    index=False
+                )
+
+            chart_df.to_excel(
+                writer,
+                sheet_name="Nowotwór",
+                index=False
+            )
+
+            filters_df.to_excel(
+                writer,
+                sheet_name="Filtry",
+                index=False
+            )
+
+            ws = writer.sheets["Nowotwór"]
+
+            chart = BarChart()
+            chart.type = "col"
+            chart.style = 10
+            chart.title = f"{rs_id} - status nowotworu"
+            chart.y_axis.title = metric_column
+            chart.x_axis.title = "Grupa pacjentów"
+
+            value_col = 3 if metric == "Liczba nosicieli" else 4
+
+            data = Reference(
+                ws,
+                min_col=value_col,
+                min_row=1,
+                max_row=3
+            )
+
+            categories = Reference(
+                ws,
+                min_col=1,
+                min_row=2,
+                max_row=3
+            )
+
+            chart.add_data(data, titles_from_data=True)
+            chart.set_categories(categories)
+            chart.width = 17
+            chart.height = 10
+
+            ws.add_chart(chart, "F2")
+
+        messagebox.showinfo(
+            "Eksport zakończony",
+            f"Zapisano plik:\n{filename}"
+        )
+
+    except Exception as error:
+        messagebox.showerror("Błąd eksportu", str(error))
+
+# ==========================================
+# EKSPORT WSZYSTKICH WARIANTÓW DO EXCELA
+# ==========================================
+
+def export_all_excel():
+    try:
+        population = population_all_combobox.get()
+        gene = gene_all_combobox.get()
+
+        age_min, age_max, has_cancer = read_patient_filters(
+            age_min_all_entry,
+            age_max_all_entry,
+            cancer_all_combobox
+        )
+
+        df = get_all_comparisons(
+            population,
+            gene,
+            age_min=age_min,
+            age_max=age_max,
+            has_cancer=has_cancer
+        )
+
+        if df is None or df.empty:
+            messagebox.showwarning(
+                "Brak danych", "Nie ma danych do eksportu."
+            )
+            return
+
+        filename = filedialog.asksaveasfilename(
+            title="Zapisz porównanie wariantów",
+            defaultextension=".xlsx",
+            filetypes=[("Plik Excel", "*.xlsx")],
+            initialfile="BRCA_wszystkie_warianty.xlsx"
+        )
+
+        if not filename:
+            return
+
+        chart_df = df[[
+            "rs_id",
+            "lab_af_percent",
+            "ref_af_percent"
+        ]].copy()
+
+        chart_df.columns = [
+            "Wariant",
+            "LAB AF [%]",
+            "gnomAD AF [%]"
+        ]
+
+        filters_df = pd.DataFrame([
+            ["Gen", gene],
+            ["Populacja", population],
+            ["Wiek od", age_min],
+            ["Wiek do", age_max],
+            ["Nowotwór", cancer_all_combobox.get()],
+            ["Skala w aplikacji", scale_all_combobox.get()],
+            ["Liczba wariantów", len(df)],
+            ["Dane", "Syntetyczne"]
+        ], columns=["Parametr", "Wartość"])
+
+        with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+            df.to_excel(
+                writer,
+                sheet_name="Wyniki",
+                index=False
+            )
+
+            chart_df.to_excel(
+                writer,
+                sheet_name="Porównanie AF",
+                index=False
+            )
+
+            filters_df.to_excel(
+                writer,
+                sheet_name="Filtry",
+                index=False
+            )
+
+            ws = writer.sheets["Porównanie AF"]
+
+            chart = BarChart()
+            chart.type = "bar"
+            chart.grouping = "clustered"
+            chart.style = 10
+            chart.title = f"LAB vs gnomAD - {population}"
+            chart.x_axis.title = "AF [%]"
+            chart.y_axis.title = "Wariant"
+
+            data = Reference(
+                ws,
+                min_col=2,
+                max_col=3,
+                min_row=1,
+                max_row=len(chart_df) + 1
+            )
+
+            categories = Reference(
+                ws,
+                min_col=1,
+                min_row=2,
+                max_row=len(chart_df) + 1
+            )
+
+            chart.add_data(data, titles_from_data=True)
+            chart.set_categories(categories)
+
+            chart.width = 23
+            chart.height = max(
+                10,
+                min(30, len(chart_df) * 0.5)
+            )
+
+            ws.add_chart(chart, "E2")
+
+        messagebox.showinfo(
+            "Eksport zakończony",
+            f"Zapisano plik:\n{filename}"
+        )
+
+    except Exception as error:
+        messagebox.showerror("Błąd eksportu", str(error))
+
 def show_statistics():
 
     selected = variant_combobox.get()
@@ -1237,6 +1550,7 @@ def show_statistics():
             text="Nie (p ≥ 0,05)"
         )
 
+
 show_button = ttk.Button(
     controls_frame,
     text="Pokaż statystyki",
@@ -1246,4 +1560,30 @@ show_button = ttk.Button(
 show_button.pack()
 
 
+# Eksport pojedynczego wariantu
+export_single_button = ttk.Button(
+    controls_frame,
+    text="Eksportuj analizę do Excel",
+    command=export_single_excel
+)
+
+export_single_button.pack(pady=10)
+
+
+# Eksport wszystkich wariantów
+export_all_button = ttk.Button(
+    all_controls_frame,
+    text="Eksportuj do Excel",
+    command=export_all_excel
+)
+
+export_all_button.grid(
+    row=7,
+    column=0,
+    columnspan=2,
+    pady=10
+)
+
+
 root.mainloop()
+
