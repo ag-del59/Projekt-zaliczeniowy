@@ -368,6 +368,99 @@ controls_frame.pack(
     padx=15,
     pady=15
 )
+
+# ------------------------------------------
+# NIEZALEŻNE FILTRY WYKRESU
+# ------------------------------------------
+
+chart_filters_frame = ttk.LabelFrame(
+    left_frame,
+    text="Filtry wykresu"
+)
+chart_filters_frame.pack(fill="x", padx=15, pady=10)
+
+
+# ------------------------------------------
+# SUWAKI WIEKU DLA WYKRESU
+# ------------------------------------------
+
+chart_age_min = tk.IntVar(value=18)
+chart_age_max = tk.IntVar(value=90)
+
+ttk.Label(
+    chart_filters_frame,
+    text="Minimalny wiek:"
+).grid(row=0, column=0, padx=5, pady=5)
+
+min_age_label = ttk.Label(
+    chart_filters_frame,
+    text="18 lat"
+)
+min_age_label.grid(row=0, column=2, padx=5)
+
+min_age_slider = ttk.Scale(
+    chart_filters_frame,
+    from_=0,
+    to=100,
+    orient="horizontal",
+    length=220
+)
+min_age_slider.set(18)
+min_age_slider.grid(row=0, column=1, padx=5, pady=5)
+
+ttk.Label(
+    chart_filters_frame,
+    text="Maksymalny wiek:"
+).grid(row=1, column=0, padx=5, pady=5)
+
+max_age_label = ttk.Label(
+    chart_filters_frame,
+    text="90 lat"
+)
+max_age_label.grid(row=1, column=2, padx=5)
+
+max_age_slider = ttk.Scale(
+    chart_filters_frame,
+    from_=0,
+    to=100,
+    orient="horizontal",
+    length=220
+)
+max_age_slider.set(90)
+max_age_slider.grid(row=1, column=1, padx=5, pady=5)
+
+
+ttk.Label(
+    chart_filters_frame,
+    text="Rodzaj analizy:"
+).grid(row=2, column=0, padx=5, pady=5)
+
+chart_metric_combobox = ttk.Combobox(
+    chart_filters_frame,
+    values=[
+        "Częstość allelu (AF)",
+        "Liczba nosicieli"
+    ],
+    state="readonly",
+    width=23
+)
+chart_metric_combobox.set("Częstość allelu (AF)")
+chart_metric_combobox.grid(row=2, column=1, columnspan=2, padx=5, pady=5)
+
+ttk.Label(
+    chart_filters_frame,
+    text="Skala:"
+).grid(row=3, column=0, padx=5, pady=5)
+
+chart_scale_combobox = ttk.Combobox(
+    chart_filters_frame,
+    values=["Liniowa", "Logarytmiczna"],
+    state="readonly",
+    width=18
+)
+chart_scale_combobox.set("Liniowa")
+chart_scale_combobox.grid(row=3, column=1, padx=5, pady=5)
+
 chart_frame = ttk.LabelFrame(
     left_frame,
     text="Częstość wariantu a występowanie nowotworu"
@@ -627,68 +720,157 @@ significance_value = ttk.Label(
 significance_value.grid(row=3, column=1, padx=10, pady=5)
 
 
+
 def show_cancer_chart(rs_id, age_min=None, age_max=None):
-    """Porównuje AF w grupach z nowotworem i bez, w wybranym wieku."""
+    """Rysuje AF lub liczbę nosicieli w grupach nowotworowych."""
+
+    from scipy.stats import fisher_exact
+
     for widget in chart_frame.winfo_children():
         widget.destroy()
 
     df = get_cancer_group_af(rs_id, age_min, age_max)
-    groups = [("tak", "Z nowotworem"), ("nie", "Bez nowotworu")]
-    values, sizes = [], []
+
+    groups = [
+        ("tak", "Z nowotworem"),
+        ("nie", "Bez nowotworu")
+    ]
+
+    values = []
+    tested = []
+    carriers = []
+
+    metric = chart_metric_combobox.get()
+    logarithmic = chart_scale_combobox.get() == "Logarytmiczna"
+
     for code, label in groups:
         subset = df[df["has_cancer"] == code] if not df.empty else df
-        if subset.empty:
-            values.append(0.0)
-            sizes.append(0)
-        else:
-            values.append(float(subset.iloc[0]["af_percent"]))
-            sizes.append(int(subset.iloc[0]["tested_n"]))
 
-    if not any(sizes):
-        ttk.Label(chart_frame, text="Brak pacjentów w wybranym zakresie wieku.").pack(pady=30)
+        if subset.empty:
+            n = 0
+            carrier_n = 0
+            af = 0.0
+        else:
+            row = subset.iloc[0]
+            n = int(row["tested_n"])
+            carrier_n = (
+                int(row["heterozygous_n"]) +
+                int(row["homozygous_n"])
+            )
+            af = float(row["af_percent"])
+
+        tested.append(n)
+        carriers.append(carrier_n)
+
+        if metric == "Liczba nosicieli":
+            values.append(carrier_n)
+        else:
+            values.append(af)
+
+    if not any(tested):
+        ttk.Label(
+            chart_frame,
+            text="Brak pacjentów dla wybranego zakresu wieku."
+        ).pack(pady=30)
         return
 
     fig, ax = plt.subplots(figsize=(5.3, 3.6))
+
     labels = [label for _, label in groups]
     bars = ax.bar(labels, values)
-    max_value = max(values)
-    logarithmic = scale_combobox.get() == "Logarytmiczna"
-    positive_values = [v for v in values if v > 0]
-    if logarithmic and positive_values:
+
+    positive = [v for v in values if v > 0]
+
+    if logarithmic and positive:
         ax.set_yscale("log")
-        minimum = min(positive_values)
-        ax.set_ylim(max(minimum / 10, 1e-8), max(max_value * 3, minimum * 2))
-    else:
-        ax.set_ylim(0, max(max_value * 1.3, 0.01))
-    for bar, value, size in zip(bars, values, sizes):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            (value * 1.18 if logarithmic and positive_values and value > 0
-             else value + max(max_value * 0.035, 0.0003)),
-            f"{value:.4f}%\\n(n={size})" if size else "Brak pacjentów",
-            ha="center", va="bottom", fontsize=9
+        ax.set_ylim(
+            max(min(positive) / 10, 1e-8),
+            max(values) * 3
         )
-    if logarithmic and not positive_values:
-        ax.text(0.5, 0.5, "AF = 0 w obu grupach — skala liniowa",
-                transform=ax.transAxes, ha="center", va="center", fontsize=9)
-    elif logarithmic and any(v == 0 for v in values):
-        ax.text(0.5, 0.96, "AF = 0 nie jest widoczne na skali logarytmicznej",
-                transform=ax.transAxes, ha="center", va="top", fontsize=8)
-    ax.set_ylabel("Częstość allelu (AF) [%]")
-    ax.set_title(f"{rs_id} — grupy według statusu nowotworu")
+    else:
+        ax.set_ylim(0, max(max(values) * 1.3, 1))
+
+    for bar, value, n, carrier_n in zip(
+        bars, values, tested, carriers
+    ):
+        if metric == "Liczba nosicieli":
+            label = f"{carrier_n} / {n}"
+        else:
+            label = f"{value:.4f}%\n(n={n})"
+
+        if logarithmic and positive and value > 0:
+            y = value * 1.15
+        else:
+            y = value + max(max(values) * 0.04, 0.05)
+
+        if value > 0 or not logarithmic:
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                y,
+                label,
+                ha="center",
+                va="bottom",
+                fontsize=9
+            )
+
+    if metric == "Liczba nosicieli":
+        ax.set_ylabel("Liczba pacjentów z wariantem")
+    else:
+        ax.set_ylabel("Częstość allelu (AF) [%]")
+
+    ax.set_title(f"{rs_id} — status nowotworu")
+
+    if logarithmic and any(v == 0 for v in values):
+        ax.text(
+            0.5, 0.96,
+            "Wartości zerowe nie są widoczne w skali logarytmicznej",
+            transform=ax.transAxes,
+            ha="center",
+            va="top",
+            fontsize=8
+        )
+
     fig.tight_layout()
 
     canvas = FigureCanvasTkAgg(fig, master=chart_frame)
     canvas.draw()
     canvas.get_tk_widget().pack(fill="both", expand=True)
+
     plt.close(fig)
+
+    # Test Fishera: nosiciele vs pozostali pacjenci
+    if all(n > 0 for n in tested):
+        table = [
+            [carriers[0], tested[0] - carriers[0]],
+            [carriers[1], tested[1] - carriers[1]]
+        ]
+
+        odds_ratio, p_value = fisher_exact(table)
+
+        result_text = (
+            f"Test Fishera: p = {p_value:.4g}\n"
+            f"Odds ratio = {odds_ratio:.4g}\n"
+            f"Nosiciele: {carriers[0]}/{tested[0]} "
+            f"(z nowotworem), "
+            f"{carriers[1]}/{tested[1]} "
+            f"(bez nowotworu)"
+        )
+    else:
+        result_text = (
+            "Test Fishera: brak danych w jednej z grup."
+        )
 
     ttk.Label(
         chart_frame,
-        text="Obie grupy porównywane są w tym samym zakresie wieku.\\n"
-             "Wykres pokazuje dane syntetyczne, nie dowodzi związku przyczynowego.",
+        text=result_text,
         justify="center"
-    ).pack(pady=(0, 6))
+    ).pack(pady=8)
+
+    ttk.Label(
+        chart_frame,
+        text="Dane syntetyczne — wyniki nie są dowodem zależności klinicznej.",
+        justify="center"
+    ).pack(pady=(0, 8))
 
 
 def read_patient_filters(age_min_entry, age_max_entry, cancer_combobox):
@@ -833,6 +1015,72 @@ show_all_button.grid(
     pady=15
 )
 
+
+# ------------------------------------------
+# AKTUALIZACJA WYKRESU NA PODSTAWIE SUWAKÓW
+# ------------------------------------------
+
+def update_cancer_chart(event=None):
+    selected = variant_combobox.get()
+
+    if not selected:
+        return
+
+    try:
+        rs_id = selected.split(" — ")[1]
+    except IndexError:
+        messagebox.showerror(
+            "Błąd",
+            "Nieprawidłowy wariant."
+        )
+        return
+
+    age_min = round(min_age_slider.get())
+    age_max = round(max_age_slider.get())
+
+    if age_min > age_max:
+        return
+
+    show_cancer_chart(rs_id, age_min, age_max)
+
+
+def on_age_slider_change(value=None):
+    age_min = round(min_age_slider.get())
+    age_max = round(max_age_slider.get())
+
+    min_age_label.config(text=f"{age_min} lat")
+    max_age_label.config(text=f"{age_max} lat")
+
+    if age_min <= age_max:
+        update_cancer_chart()
+
+
+# Suwaki automatycznie aktualizują wykres
+min_age_slider.configure(command=on_age_slider_change)
+max_age_slider.configure(command=on_age_slider_change)
+
+# Zmiana rodzaju analizy i skali
+chart_metric_combobox.bind(
+    "<<ComboboxSelected>>",
+    update_cancer_chart
+)
+
+chart_scale_combobox.bind(
+    "<<ComboboxSelected>>",
+    update_cancer_chart
+)
+
+# Zmiana wariantu
+def variant_changed(event=None):
+    update_cancer_chart()
+    show_statistics()
+
+
+variant_combobox.bind(
+    "<<ComboboxSelected>>",
+    variant_changed
+)
+
 def show_statistics():
 
     selected = variant_combobox.get()
@@ -858,9 +1106,7 @@ def show_statistics():
         age_min=age_min, age_max=age_max, has_cancer=has_cancer
     )
 
-    # Wykres grup nowotworowych nie zależy od dostępności danych gnomAD.
-    # Celowo porównuje obie grupy niezależnie od filtra "Nowotwór".
-    show_cancer_chart(rs_id, age_min, age_max)
+
 
     if df is None:
         status_value.config(
@@ -999,20 +1245,5 @@ show_button = ttk.Button(
 
 show_button.pack()
 
-ttk.Label(controls_frame, text="Skala wykresu:").pack(pady=(10, 2))
-scale_combobox = ttk.Combobox(
-    controls_frame, values=["Liniowa", "Logarytmiczna"],
-    state="readonly", width=18
-)
-scale_combobox.set("Liniowa")
-scale_combobox.pack()
-
-
-def change_scale(event=None):
-    if variant_combobox.get():
-        show_statistics()
-
-
-scale_combobox.bind("<<ComboboxSelected>>", change_scale)
 
 root.mainloop()
