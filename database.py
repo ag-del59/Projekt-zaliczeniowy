@@ -2,11 +2,10 @@ import sqlite3
 import pandas as pd
 from scipy.stats import fisher_exact
 
-DB_NAME = "brca_database.db"
+DB_NAME = "brca_database_5000.db"
 
 
 def create_database():
-
     # Połączenie z bazą danych.
     # Jeśli plik bazy nie istnieje, SQLite utworzy go automatycznie.
     conn = sqlite3.connect(DB_NAME)
@@ -23,7 +22,11 @@ def create_database():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS patients (
             patient_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            patient_code TEXT NOT NULL UNIQUE
+            patient_code TEXT NOT NULL UNIQUE,
+            age INTEGER,
+            has_cancer TEXT CHECK (
+                has_cancer IN ('tak', 'nie')
+            )
         )
     """)
 
@@ -85,7 +88,7 @@ def create_database():
             FOREIGN KEY (variant_id)
                 REFERENCES variants(variant_id)
                 ON DELETE CASCADE,
-                
+
             UNIQUE(test_id, variant_id, zygosity)
         )
     """)
@@ -129,8 +132,8 @@ def create_database():
 
     print("Baza danych została utworzona.")
 
-def import_variants_from_excel(file_path):
 
+def import_variants_from_excel(file_path):
     df = pd.read_excel(file_path, sheet_name="Warianty")
 
     conn = sqlite3.connect(DB_NAME)
@@ -238,12 +241,13 @@ def import_variants_from_excel(file_path):
     conn.close()
 
     print("Dane z arkusza Warianty zostały zaimportowane.")
+
+
 # --------------------------
 # URUCHOMIENIE PROGRAMU
 # --------------------------
 
 def import_tests_from_excel(file_path):
-
     # Wczytujemy arkusz "Badania" z Excela
     df = pd.read_excel(file_path, sheet_name="Badania")
 
@@ -260,12 +264,16 @@ def import_tests_from_excel(file_path):
         gene = row["gen"]
         test_type = row["rodzaj_testu"]
         panel = row["panel_testowy"]
+        age = int(row["wiek"])
+        has_cancer = str(row["czy_nowotwor"]).strip().lower()
+        if has_cancer not in ("tak", "nie"):
+            raise ValueError(f"Nieprawidłowa wartość czy_nowotwor: {has_cancer}")
 
         # 1. Dodaj pacjenta, jeśli jeszcze nie istnieje
         cursor.execute("""
-            INSERT OR IGNORE INTO patients (patient_code)
-            VALUES (?)
-        """, (patient_code,))
+            INSERT OR IGNORE INTO patients (patient_code, age, has_cancer)
+            VALUES (?, ?, ?)
+        """, (patient_code, age, has_cancer))
 
         # 2. Pobierz patient_id
         cursor.execute("""
@@ -299,8 +307,9 @@ def import_tests_from_excel(file_path):
 
     print("Dane z arkusza Badania zostały zaimportowane.")
 
+    # -------------------------------------------------------
 
-    #-------------------------------------------------------
+
 def check_import():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -332,10 +341,11 @@ def check_import():
         "Liczba danych referencyjnych:",
         reference_count
     )
-#--------------------------------------------
+
+
+# --------------------------------------------
 
 def get_variant_statistics():
-
     conn = sqlite3.connect(DB_NAME)
 
     query = """
@@ -415,8 +425,8 @@ def get_variant_statistics():
 
     return df
 
-def get_variant_by_rs(rs_id):
 
+def get_variant_by_rs(rs_id):
     conn = sqlite3.connect(DB_NAME)
 
     query = """
@@ -475,27 +485,27 @@ def get_variant_by_rs(rs_id):
         return None
 
     df["allele_count"] = (
-        df["heterozygous_n"]
-        + 2 * df["homozygous_n"]
+            df["heterozygous_n"]
+            + 2 * df["homozygous_n"]
     )
 
     df["allele_number"] = (
-        2 * df["tested_n"]
+            2 * df["tested_n"]
     )
 
     df["lab_af"] = (
-        df["allele_count"]
-        / df["allele_number"]
+            df["allele_count"]
+            / df["allele_number"]
     )
 
     df["lab_af_percent"] = (
-        df["lab_af"] * 100
+            df["lab_af"] * 100
     )
 
     return df
 
-def get_all_rs_ids():
 
+def get_all_rs_ids():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -514,8 +524,8 @@ def get_all_rs_ids():
 
     return rs_ids
 
-def get_variant_list():
 
+def get_variant_list():
     conn = sqlite3.connect(DB_NAME)
 
     query = """
@@ -536,13 +546,11 @@ def get_variant_list():
 
 
 def get_variant_labels():
-
     df = get_variant_list()
 
     labels = []
 
     for _, row in df.iterrows():
-
         label = (
             f"{row['gene']} — "
             f"{row['rs_id']} — "
@@ -553,8 +561,8 @@ def get_variant_labels():
 
     return labels
 
-def import_reference_from_excel(file_path):
 
+def import_reference_from_excel(file_path):
     df = pd.read_excel(
         file_path,
         sheet_name="Dane_gnomAD"
@@ -726,8 +734,8 @@ def import_reference_from_excel(file_path):
         f"pominięto {skipped}."
     )
 
-def clear_reference_data():
 
+def clear_reference_data():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -740,143 +748,87 @@ def clear_reference_data():
 
     print("Dane referencyjne zostały wyczyszczone.")
 
-def get_comparison_by_rs(rs_id, population):
-        conn = sqlite3.connect(DB_NAME)
 
-        query = """
-            SELECT
-                v.gene,
-                v.rs_id,
-                v.hgvs_c,
+def get_comparison_by_rs(rs_id, population, age_min=None, age_max=None, has_cancer=None):
+    """Porównanie częstości wariantu w przefiltrowanej grupie z referencją."""
+    conn = sqlite3.connect(DB_NAME)
+    conditions = ["p.age >= ?" if age_min is not None else "1=1",
+                  "p.age <= ?" if age_max is not None else "1=1",
+                  "p.has_cancer = ?" if has_cancer is not None else "1=1"]
+    patient_filter = " AND ".join(conditions)
+    filter_params = []
+    if age_min is not None:
+        filter_params.append(age_min)
+    if age_max is not None:
+        filter_params.append(age_max)
+    if has_cancer is not None:
+        filter_params.append(has_cancer.lower())
 
-                r.population,
-                r.allele_count AS ref_ac,
-                r.allele_number AS ref_an,
-                r.allele_frequency AS ref_af,
-
-                COUNT(
-                    DISTINCT t_all.patient_id
-                ) AS tested_n,
-
-                COUNT(
-                    DISTINCT CASE
-                        WHEN f.zygosity = 'heterozygota'
-                        THEN t_positive.patient_id
-                    END
-                ) AS heterozygous_n,
-
-                COUNT(
-                    DISTINCT CASE
-                        WHEN f.zygosity = 'homozygota'
-                        THEN t_positive.patient_id
-                    END
-                ) AS homozygous_n
-
-            FROM variants v
-
-            JOIN tests t_all
-                ON t_all.gene = v.gene
-
-            LEFT JOIN findings f
-                ON f.variant_id = v.variant_id
-
-            LEFT JOIN tests t_positive
-                ON f.test_id = t_positive.test_id
-
-            JOIN reference_frequencies r
-                ON r.variant_id = v.variant_id
-
-            WHERE v.rs_id = ?
-              AND r.population = ?
-
-            GROUP BY
-                v.variant_id,
-                v.gene,
-                v.rs_id,
-                v.hgvs_c,
-                r.population,
-                r.allele_count,
-                r.allele_number,
-                r.allele_frequency
-        """
-
-        df = pd.read_sql_query(
-            query,
-            conn,
-            params=(rs_id, population)
-        )
-
+    query = f"""
+        SELECT v.gene, v.rs_id, v.hgvs_c,
+               r.population,
+               r.allele_count AS ref_ac,
+               r.allele_number AS ref_an,
+               r.allele_frequency AS ref_af,
+               (SELECT COUNT(DISTINCT t.patient_id)
+                  FROM tests t JOIN patients p ON p.patient_id=t.patient_id
+                 WHERE t.gene=v.gene AND {patient_filter}) AS tested_n,
+               (SELECT COUNT(DISTINCT t.patient_id)
+                  FROM findings f
+                  JOIN tests t ON t.test_id=f.test_id
+                  JOIN patients p ON p.patient_id=t.patient_id
+                 WHERE f.variant_id=v.variant_id
+                   AND f.zygosity='heterozygota'
+                   AND {patient_filter}) AS heterozygous_n,
+               (SELECT COUNT(DISTINCT t.patient_id)
+                  FROM findings f
+                  JOIN tests t ON t.test_id=f.test_id
+                  JOIN patients p ON p.patient_id=t.patient_id
+                 WHERE f.variant_id=v.variant_id
+                   AND f.zygosity='homozygota'
+                   AND {patient_filter}) AS homozygous_n
+        FROM variants v
+        JOIN reference_frequencies r ON r.variant_id=v.variant_id
+        WHERE v.rs_id=? AND r.population=?
+    """
+    params = tuple(filter_params * 3 + [rs_id, population])
+    try:
+        df = pd.read_sql_query(query, conn, params=params)
+    finally:
         conn.close()
 
-        if df.empty:
-            return None
+    if df.empty or int(df.iloc[0]["tested_n"]) == 0:
+        return None
 
-        # dane laboratoryjne
-        df["lab_ac"] = (
-                df["heterozygous_n"]
-                + 2 * df["homozygous_n"]
-        )
+    df["lab_ac"] = df["heterozygous_n"] + 2 * df["homozygous_n"]
+    df["lab_an"] = 2 * df["tested_n"]
+    df["lab_af"] = df["lab_ac"] / df["lab_an"]
+    df["lab_af_percent"] = df["lab_af"] * 100
+    df["ref_af_percent"] = df["ref_af"] * 100
+    df["frequency_ratio"] = df.apply(
+        lambda row: row["lab_af"] / row["ref_af"]
+        if pd.notna(row["ref_af"]) and row["ref_af"] > 0 else None,
+        axis=1
+    )
 
-        df["lab_an"] = (
-                2 * df["tested_n"]
-        )
-
-        df["lab_af"] = (
-                df["lab_ac"]
-                / df["lab_an"]
-        )
-
-        df["lab_af_percent"] = (
-                df["lab_af"] * 100
-        )
-
-        # dane referencyjne
-        df["ref_af_percent"] = (
-                df["ref_af"] * 100
-        )
-
-        # ile razy częściej/rzadziej wariant występuje w labie
-        df["frequency_ratio"] = df.apply(
-            lambda row: (
-                row["lab_af"] / row["ref_af"]
-                if row["ref_af"] > 0
-                else None
-            ),
-            axis=1
-        )
-        # ==============================
-        # TEST DOKŁADNY FISHERA
-        # ==============================
-
-        lab_ac = int(df.loc[0, "lab_ac"])
-        lab_an = int(df.loc[0, "lab_an"])
-
-        ref_ac = int(df.loc[0, "ref_ac"])
-        ref_an = int(df.loc[0, "ref_an"])
-
-        # Tabela 2x2:
-        #                wariant    brak wariantu
-        # LAB
-        # gnomAD
-
-        table = [
-            [lab_ac, lab_an - lab_ac],
-            [ref_ac, ref_an - ref_ac]
-        ]
-
+    for idx, row in df.iterrows():
+        lab_ac, lab_an = int(row["lab_ac"]), int(row["lab_an"])
+        ref_ac, ref_an = int(row["ref_ac"]), int(row["ref_an"])
+        if ref_an <= 0 or ref_ac < 0 or ref_ac > ref_an:
+            df.loc[idx, ["odds_ratio", "p_value", "significant"]] = [None, None, False]
+            continue
         odds_ratio, p_value = fisher_exact(
-            table,
+            [[lab_ac, lab_an - lab_ac], [ref_ac, ref_an - ref_ac]],
             alternative="two-sided"
         )
+        df.loc[idx, "odds_ratio"] = odds_ratio
+        df.loc[idx, "p_value"] = p_value
+        df.loc[idx, "significant"] = bool(p_value < 0.05)
+    return df
 
-        df["odds_ratio"] = odds_ratio
-        df["p_value"] = p_value
-        df["significant"] = p_value < 0.05
 
-        return df
-
-def get_all_comparisons(population, gene="Wszystkie"):
-
+def get_all_comparisons(population, gene="Wszystkie",
+                        age_min=None, age_max=None, has_cancer=None):
     conn = sqlite3.connect(DB_NAME)
 
     # Pobieramy wszystkie warianty
@@ -903,8 +855,7 @@ def get_all_comparisons(population, gene="Wszystkie"):
     for rs_id in rs_ids:
 
         df = get_comparison_by_rs(
-            rs_id,
-            population
+            rs_id, population, age_min, age_max, has_cancer
         )
 
         if df is None:
@@ -915,8 +866,8 @@ def get_all_comparisons(population, gene="Wszystkie"):
         # Jeżeli wybrano konkretny gen,
         # pomijamy warianty drugiego genu
         if (
-            gene != "Wszystkie"
-            and row["gene"] != gene
+                gene != "Wszystkie"
+                and row["gene"] != gene
         ):
             continue
 
@@ -938,11 +889,11 @@ if __name__ == "__main__":
     create_database()
 
     import_tests_from_excel(
-        "BRCA1_BRCA2_dane_syntetyczne_1000_pacjentow.xlsx"
+        "BRCA1_BRCA2_5000_pacjentow_wiek_nowotwor.xlsx"
     )
 
     import_variants_from_excel(
-        "BRCA1_BRCA2_dane_syntetyczne_1000_pacjentow.xlsx"
+        "BRCA1_BRCA2_5000_pacjentow_wiek_nowotwor.xlsx"
     )
 
     import_reference_from_excel(
@@ -957,16 +908,10 @@ if __name__ == "__main__":
     )
 
     print("\nPorównanie LAB vs gnomAD:")
-    print(
-        comparison[
-            [
-                "rs_id",
-                "lab_af_percent",
-                "ref_af_percent",
-                "frequency_ratio",
-                "odds_ratio",
-                "p_value",
-                "significant"
-            ]
-        ]
-    )
+    if comparison is None:
+        print("Brak danych referencyjnych dla tego wariantu.")
+    else:
+        print(comparison[[
+            "rs_id", "lab_af_percent", "ref_af_percent",
+            "frequency_ratio", "odds_ratio", "p_value", "significant"
+        ]])
