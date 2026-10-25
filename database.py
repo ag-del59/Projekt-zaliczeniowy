@@ -827,6 +827,42 @@ def get_comparison_by_rs(rs_id, population, age_min=None, age_max=None, has_canc
     return df
 
 
+def get_cancer_group_af(rs_id, age_min=None, age_max=None):
+    """AF wariantu w dwóch grupach pacjentów; niezależnie od danych gnomAD."""
+    conn = sqlite3.connect(DB_NAME)
+    query = """
+        SELECT p.has_cancer,
+               COUNT(DISTINCT t.patient_id) AS tested_n,
+               COUNT(DISTINCT CASE WHEN f.zygosity = 'heterozygota'
+                     THEN t.patient_id END) AS heterozygous_n,
+               COUNT(DISTINCT CASE WHEN f.zygosity = 'homozygota'
+                     THEN t.patient_id END) AS homozygous_n
+        FROM variants v
+        JOIN tests t ON t.gene = v.gene
+        JOIN patients p ON p.patient_id = t.patient_id
+        LEFT JOIN findings f ON f.test_id = t.test_id
+                            AND f.variant_id = v.variant_id
+        WHERE v.rs_id = ?
+          AND p.has_cancer IN ('tak', 'nie')
+          AND (? IS NULL OR p.age >= ?)
+          AND (? IS NULL OR p.age <= ?)
+        GROUP BY p.has_cancer
+    """
+    try:
+        df = pd.read_sql_query(
+            query, conn,
+            params=(rs_id, age_min, age_min, age_max, age_max)
+        )
+    finally:
+        conn.close()
+    if df.empty:
+        return df
+    df["allele_count"] = df["heterozygous_n"] + 2 * df["homozygous_n"]
+    df["allele_number"] = 2 * df["tested_n"]
+    df["af_percent"] = 100 * df["allele_count"] / df["allele_number"]
+    return df
+
+
 def get_all_comparisons(population, gene="Wszystkie",
                         age_min=None, age_max=None, has_cancer=None):
     conn = sqlite3.connect(DB_NAME)
