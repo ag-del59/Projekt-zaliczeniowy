@@ -5,7 +5,7 @@ danych pacjentów** badanych w kierunku wariantów genów BRCA1 i BRCA2
 oraz do porównania częstości alleli (AF) z danymi referencyjnymi
 opisanymi jako gnomAD.
 
-**Temat zaliczenia:** 2. Analiza danych medycznych pacjentów.
+**Temat zaliczenia:**  Analiza danych medycznych pacjentów.
 
 > **Uwaga:** Projekt ma charakter dydaktyczny. Dane pacjentów są
 > syntetyczne, a uzyskane wyniki nie służą do diagnostyki ani do
@@ -47,21 +47,13 @@ roboczym aplikacji.
 ## Instalacja i uruchomienie
 
 1. Pobierz lub sklonuj repozytorium i otwórz jego katalog.
-2. Utwórz środowisko wirtualne (opcjonalnie, zalecane):
-
-&#x20;   `bash python -m venv .venv`
-
-3. Aktywuj środowisko:
-
-   * Windows: `.venvScriptsactivate`
-   * Linux/macOS: `source .venv/bin/activate`
-4. Zainstaluj zależności:
+2. Zainstaluj zależności:
 
 &#x20;   `bash python -m pip install -r requirements.txt`
 
-5. Upewnij się, że w katalogu znajduje się przygotowany plik
+3. Upewnij się, że w katalogu znajduje się przygotowany plik
 `brca_database_5000.db`.
-6. Uruchom aplikację z tego katalogu:
+4. Uruchom aplikację z tego katalogu:
 
 &#x20;   `bash python main.py`
 
@@ -79,11 +71,6 @@ Do zbudowania bazy potrzebne są arkusze: -
 
 W wersji `database.py` zawierającej blok `if __name__ == "__main__":`
 można uruchomić `python database.py`, aby utworzyć i wypełnić bazę.
-Jeśli blok został usunięty podczas porządkowania kodu, bazę trzeba
-przygotować osobnym skryptem wywołującym `create_database()`,
-`import_tests_from_excel()`, `import_variants_from_excel()` i
-`import_reference_from_excel()` w tej kolejności. **Nie wykonuj importu
-ponownie na gotowej bazie bez kopii zapasowej.**
 
 ## Jak korzystać z programu
 
@@ -131,11 +118,11 @@ wnioskować o rzeczywistym ryzyku zachorowania.
 projekt-brca/
 ├── main.py                          # interfejs użytkownika i wizualizacje
 ├── database.py                      # baza SQLite, zapytania i statystyki
-├── brca_database_5000.db            # przykładowa baza (do dołączenia)
+├── brca_database_5000.db            # przykładowa baza
 ├── requirements.txt                 # zależności Pythona
 ├── README.md                        # opis projektu
 ├── SPECYFIKACJA_GUI.md              # specyfikacja aplikacji
-└── screenshots/                     # zrzuty ekranu (do uzupełnienia)
+└── screenshots/                     # zrzuty ekranu
     ├── analiza_wariantu.png
     └── porownanie_wariantow.png
 ```

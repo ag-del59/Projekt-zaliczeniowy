@@ -39,7 +39,7 @@ Okno główne ma tytuł **Analiza wariantów BRCA1 / BRCA2**. Użytkownik przeł
 
 ## 5\. Walidacja i komunikaty
 
-* Wiek powinien być liczbą całkowitą z zakresu 0–120.
+* Wiek powinien być liczbą całkowitą z zakresu 0–100.
 * Dolna granica wieku nie może przekraczać górnej.
 * Brak danych dla filtrów jest sygnalizowany komunikatem.
 * Błędy eksportu są prezentowane w oknie komunikatu.
